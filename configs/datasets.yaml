@@ -1,0 +1,23 @@
+terrain:
+  default_source: srtm1_arc_second
+  sources:
+    srtm1_arc_second:
+      description: NASA SRTM 1 Arc-Second DEM (30 m resolution)
+      download_url: https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/TIFF/
+      cache_dir: assets/terrain/cache
+      raw_dir: assets/terrain/raw
+      resolution_m: 30
+    usgs_1_3_arc_second:
+      description: USGS 3DEP 1/3 Arc-Second DEM (10 m) - optional high resolution
+      download_url: https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/TIFF/
+      cache_dir: assets/terrain/cache
+      raw_dir: assets/terrain/raw
+      resolution_m: 10
+roads:
+  default_source: osm_geofabrik
+  sources:
+    osm_geofabrik:
+      description: OpenStreetMap Geofabrik Washington extract
+      download_url: https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf
+      cache_dir: assets/roads/cache
+      raw_dir: assets/roads/raw

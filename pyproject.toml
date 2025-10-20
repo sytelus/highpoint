@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=67", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "highpoint"
+version = "0.1.0"
+description = "Scenic viewpoint recommendation engine for Washington State."
+readme = "PROJECT.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "HighPoint Contributors" }
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.11",
+  "rasterio>=1.3",
+  "pyproj>=3.5",
+  "shapely>=2.0",
+  "geopandas>=0.13",
+  "osmnx>=1.6",
+  "networkx>=3.1",
+  "rich>=13.7",
+  "typer>=0.9",
+  "pydantic>=2.5",
+  "matplotlib>=3.7"
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=23.9",
+  "ruff>=0.1.8",
+  "mypy>=1.6",
+  "pytest>=7.4",
+  "pytest-cov>=4.1"
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = "\\.pyi?$"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "F", "I", "W", "N", "B", "UP", "ANN", "ASYNC", "COM"]
+ignore = ["ANN101", "ANN102"]
+src = ["src"]
+
+[tool.ruff.isort]
+known-first-party = ["highpoint"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = []
+strict = true
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --disable-warnings"
