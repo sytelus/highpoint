@@ -1,19 +1,76 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-Highpoint is currently a clean slate; keep the layout predictable as modules arrive. Place production code in `src/` and mirror tests under `tests/`. Use `assets/` for datasets or prompt templates and `scripts/` for helper CLIs. Give each agent a subpackage at `src/highpoint/<agent_name>/` with local `config.py` and `handlers/`, keep shared helpers in `src/highpoint/common/`, and record design decisions in ADRs under `docs/`.
+Use below guidelines to learn author's big picture intent as opposed to the guidelines that you must absolutely or always adhere to at any cost. For example, you may identify some issues or conflicts with below guidelines or may realize that author has underspecified or overspecified or made some mistakes in some aspects in specifying these guidelines. In those cases, think of yourself as an expert developer and make a good sound decision that an expert developer will make as opposed to just strickly or blindly following these guidelines. In otherwords, it is ok to not follow these guidelines strickly if you believe author will like the end results better with your own decisions. However, in these cases, do note these decisions in your response and add them into a list in VIOLATIONS.md file in the project root with context and explanation.
 
-## Build, Test, and Development Commands
-Standardize on Make so humans and agents run the same workflow. Maintain these root targets: `make bootstrap` (create `.venv/` and install from `requirements.txt`), `make lint` (run `ruff` and `black --check` on `src/` and `tests/`), `make test` (`pytest --cov=src/highpoint`), and `make run` (`python -m highpoint.app`). When new tooling appears, extend the targets instead of committing raw commands.
+## Project Structure & Module Organization
+
+This is a Python 3.11 project that should be installable as a module using pip command. The project contains,
+
+1. The module that encapsulates most of the functionality as Python library that can be imported in other projects. All the module source code should reside in subfolder that is named same as parent folder.
+2. The script that uses above module, contains `main()` and can be run by end user as an application.
+3. The unittests and end-to-end tests that resides in `tests` folder.
+4. Any additional scripts such as data downloading, processing, tutorial examples etc should go inside `scripts` folder.
+5. Any documents including tutorials should go inside `docs` folder.
+6. Any configuration files should go inside `configs` folder.
+7. Any docker files including scripts to build docker should go inside `docker` folder.
+8. Any data should go in `data` folder.
+
+The project root should contain pyproject.toml and continuously track dependencies as code is being updated. In this file, avoid strict versioned dependencies and instead try to use version-less dependencies so users can pip install without having to create new environment. Sometimes this may not be possible and a specific version will need to be specified. In those cases, it is ok to include dependencies with versions however try to use inequalities such as >= etc for version numbers instead of strict equality.
+
+The project root should contain LICENCE file that should be standard MIT licence.
+
+You can obtain author and author's email information from global git config when needed.
+
+The project root should contain README file that should be kept concise with following information:
+
+* Purpose of the project
+* Salient features of the project that users may find useful
+* "How to build and run" information that provides step-by-step information to user on how to get up and running. If there are limitations and differences in steps for Linux, MacOD and Windows then it should be noted.
+* Examples showcasing project's features and capabilities
+
+The `docs` folder can contain much more detailed information. The README should link to documents in `docs` so it stays concise.
+
+Include small data files or samples or examples in `data` folder. However, avoid large generated files such as program outputs, data downloads, temporary files etc getting checked-in to repository. Our goal is to keept repository lean. You may use either `.gitignore` or temporary folders for this purpose.
+
+The project root may contain TODO.md that has all the remaining TODOs for the project.
+
+The project root may contain CHANGELOG.md that is akin to release notes summarizing major improvements or bug fixes with dates. The idea of this file is not to list every single change (that can be viewed in commit log) but rather the most interesting high level changes added.
+
+Assume following two environment variables to be available in user's system (include neccesory instructions in README):
+
+1. `DATA_ROOT`: This points to directory where large data files can be stored. Generally, each dataset should be in its own sub-directory inside DATA_ROOT.
+2. `OUT_DIR`: Inside directory pointed by OUR_DIR, create a sub-directory with same name as project and use that for saving program outputs or intermediate files or files generated by users etc.
+
+The project should contain main.py script that is the main entry point of the project. The project root can also contain install.sh script if pip cannot support all installation needs. We strive to keep things simple and if supporting multiple operating systems becomes difficult, make decision to only support Linux and WSL in Windows.
+
+Assume vscode will be used to edit and debug the code in this project.
 
 ## Coding Style & Naming Conventions
+
 Target Python 3.11+. Use four-space indentation, full type annotations, and `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes. Format with `black`, lint with `ruff --fix`, and gate PRs with `mypy --strict`. Keep module interfaces slim, prefer dataclasses for structured payloads, and store configs in `configs/` with uppercase keys plus inline comments.
 
+In general, keep things simple and concise. When updating code, try to make minimal number of changes that an expert developer would do. Your code should be nice and clean and frictionless to read and follow and maintain that other people will appreciate. Avoid extra dependencies when possible but include them when they do make significant difference in code complexity, code length, robustness and featureset that will actually be useful to end user.
+
+When it makes sense, you should create a configuration called "toyrun" that allows project to run with small sample data on less powerful laptops. This configuration should allow users to do an end-to-end run in vscode by chosing toyrun configuration and clicking on Debug button. The toyrun should be self-contained and should take a short time for end-to-end run and should so something useful that can be validated for general correctness of the code.
+
+## Documentation Guidelines
+
+Code should be well documented but avoid the documentation that is too verbose or the documentation that is extremely obvious. For example, variable names, arguments, type hints and function names often conveys the purpose in obvious way and additional documentation is not really needed. However, sometimes it is not clear what values arguments may take or what is function returning or why some critical portion of the code is written in certain way (for example, for better performance) etc. In those cases, make sure documentation exist. Prefer concise documentation or inline comments when possible. When adding documentation, always think from a future maintainer perspective and add documentation that will help the future maintainer understand the purpose, approach, complex details, any hacks, performance sensetive code, any tricky parts etc. The goal is to ensure that the future maintainer would be able to maintain code without having to ask someone. Especially, any tricky part of the code that a future maintainer should be careful with should be annotated with proper comments giving insights to the maintainer why it is so. Sometimes, to keep code concide and number of lines in a given file small, you may add extra documentation files under `docs` directory and link to them in your comments. Always make sure all the code documentation, files in docs directory, README etc are upto date when you change code.
+
 ## Testing Guidelines
-Write tests with `pytest` and mirror production paths (`src/highpoint/foo.py` → `tests/highpoint/test_foo.py`). Name cases `test_<behavior>__<expected>()` for quick scanning, aim for ≥90% branch coverage, and fail fast on flaky suites. Keep reusable fixtures in `tests/fixtures/`, prefer factories over hard-coded IDs, and land regression tests before merging fixes.
+
+Write tests with `pytest` and mirror production paths when needed. Name cases `test_<behavior>__<expected>()` for quick scanning and fail fast on flaky suites. Keep reusable fixtures in `tests/fixtures/`, prefer factories over hard-coded IDs, and land regression tests before merging fixes.
+
+You should write tests for your own sanity purpose so you can check and verify your change. It will be good to aim for ≥90% branch coverage however do not write tests only to increase coverage but to make sure any issues with the future changes can be uncovered more easily and help future maintainers understand if they accidently introduced any bugs. Also, tests should be designed to run fast and should be inexpensive to run. You may decide to aim lower test coverage if it is not possible to design tests to be fast and inexpensive.
 
 ## Commit & Pull Request Guidelines
-Follow Conventional Commits (e.g., `feat: add routing agent`, `fix: guard auth token refresh`). Keep commits focused and include motivation in the body when the diff is not obvious. PRs must outline scope, link tracking issues, list executed commands, and attach screenshots or logs for behavioral changes. Request review only after `make lint` and `make test` pass locally.
+
+Follow Conventional Commits (e.g., `feat: add routing agent`, `fix: guard auth token refresh`). Keep commits focused and include motivation in the body when the diff is not obvious. It is good to have PR outline scope, link tracking issues, list executed commands, attach screenshots, logs for behavioral changes etc as applicable (however, these are strickly not neccesory).
 
 ## Security & Configuration Tips
+
 Never commit secrets; store runtime credentials in `.env.local` and update `.gitignore` when new keys appear. Document every environment variable in `docs/configuration.md` with defaults and rotation notes. Rotate tokens shared with automation promptly and record expirations in the PR. Editor adjustments live in `.vscode/`; propose changes through review before committing.
+
+## ExecPlans
+
+When writing complex features or significant refactors, use an ExecPlan (as described in PLANS.md in project root folder) from design to implementation.
