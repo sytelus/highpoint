@@ -70,7 +70,3 @@ Follow Conventional Commits (e.g., `feat: add routing agent`, `fix: guard auth t
 ## Security & Configuration Tips
 
 Never commit secrets; store runtime credentials in `.env.local` and update `.gitignore` when new keys appear. Document every environment variable in `docs/configuration.md` with defaults and rotation notes. Rotate tokens shared with automation promptly and record expirations in the PR. Editor adjustments live in `.vscode/`; propose changes through review before committing.
-
-## ExecPlans
-
-When writing complex features or significant refactors, use an ExecPlan (as described in PLANS.md in project root folder) from design to implementation.
