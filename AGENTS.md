@@ -1,7 +1,5 @@
 # Repository Guidelines
 
-Use below guidelines to learn author's big picture intent as opposed to the guidelines that you must absolutely or always adhere to at any cost. For example, you may identify some issues or conflicts with below guidelines or may realize that author has underspecified or overspecified or made some mistakes in some aspects in specifying these guidelines. In those cases, think of yourself as an expert developer and make a good sound decision that an expert developer will make as opposed to just strickly or blindly following these guidelines. In otherwords, it is ok to not follow these guidelines strickly if you believe author will like the end results better with your own decisions. However, in these cases, do note these decisions in your response and add them into a list in VIOLATIONS.md file in the project root with context and explanation.
-
 ## Project Structure & Module Organization
 
 This is a Python 3.11 project that should be installable as a module using pip command. The project contains,
