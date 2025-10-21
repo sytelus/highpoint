@@ -182,16 +182,24 @@ def _apply_override(target: Dict[str, Any], dotted_key: str, value: Any) -> None
 
 
 def _resolve_relative_paths(config: AppConfig) -> AppConfig:
-    data_root = Path(os.environ.get("DATA_ROOT", "data"))
+    data_root = Path(os.environ.get("DATA_ROOT", "data")).expanduser()
+    if not data_root.is_absolute():
+        data_root = (Path.cwd() / data_root).resolve()
+
+    updates: Dict[str, Any] = {}
+
     terrain_path = config.terrain.data_path
     if terrain_path is not None and not terrain_path.is_absolute():
-        terrain_update = config.terrain.model_copy(update={"data_path": data_root / terrain_path})
-        return _resolve_relative_paths(
-            config.model_copy(update={"terrain": terrain_update})
+        updates["terrain"] = config.terrain.model_copy(
+            update={"data_path": data_root / terrain_path}
         )
 
     road_path = config.roads.data_path
     if road_path is not None and not road_path.is_absolute():
-        roads_update = config.roads.model_copy(update={"data_path": data_root / road_path})
-        return config.model_copy(update={"roads": roads_update})
+        updates["roads"] = config.roads.model_copy(
+            update={"data_path": data_root / road_path}
+        )
+
+    if updates:
+        return config.model_copy(update=updates)
     return config

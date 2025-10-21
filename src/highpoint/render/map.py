@@ -1,4 +1,4 @@
-"\"\"\"Simple matplotlib rendering for HighPoint results.\"\"\""
+"""Simple matplotlib rendering for HighPoint results."""
 
 from __future__ import annotations
 

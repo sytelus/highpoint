@@ -49,9 +49,8 @@ def _render_rich_table(results: Iterable[ViewpointResult]) -> None:
         visibility_mean = meters_to_miles(result.visibility.mean_distance_m)
         visibility_median = meters_to_miles(result.visibility.median_distance_m)
         walk = f"{result.drivability.walk_minutes:.1f}" if result.drivability else "-"
-        drive = (
-            f"{result.drivability.drive_minutes:.1f}" if result.drivability and result.drivability.drive_minutes else "-"
-        )
+        drive_minutes = result.drivability.drive_minutes if result.drivability else None
+        drive = f"{drive_minutes:.1f}" if drive_minutes is not None else "-"
         access_latlon = (
             f"{result.access_latlon[0]:.5f}, {result.access_latlon[1]:.5f}"
             if result.access_latlon

@@ -4,14 +4,44 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Iterable, Optional, Tuple
 
 import numpy as np
 import rasterio
 from numpy.typing import NDArray
 from rasterio.enums import Resampling
-from rasterio.transform import Affine
-from rasterio.windows import from_bounds
+from rasterio.transform import Affine, array_bounds
+
+
+def _slice_from_bounds(
+    bounds: Tuple[float, float, float, float],
+    transform: Affine,
+    height: int,
+    width: int,
+) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Compute integer slice indices covering ``bounds`` within a raster.
+
+    Returns a tuple ``(row_start, row_stop, col_start, col_stop)`` or ``None`` when
+    the intersection is empty.
+    """
+    left, bottom, right, top = bounds
+    inv = ~transform
+    cols = []
+    rows = []
+    for x, y in ((left, bottom), (left, top), (right, bottom), (right, top)):
+        col, row = inv * (x, y)
+        cols.append(col)
+        rows.append(row)
+
+    col_start = max(0, int(np.floor(min(cols))))
+    col_stop = min(width, int(np.ceil(max(cols))))
+    row_start = max(0, int(np.floor(min(rows))))
+    row_stop = min(height, int(np.ceil(max(rows))))
+
+    if col_start >= col_stop or row_start >= row_stop:
+        return None
+    return row_start, row_stop, col_start, col_stop
 
 
 @dataclass(frozen=True)
@@ -46,13 +76,13 @@ class TerrainGrid:
 
     def subset(self, bounds: Tuple[float, float, float, float]) -> "TerrainGrid":
         """Return a clipped grid within projected bounds (minx, miny, maxx, maxy)."""
-        window = from_bounds(*bounds, transform=self.transform)
-        row_off = int(window.row_off)
-        col_off = int(window.col_off)
-        height = int(window.height)
-        width = int(window.width)
-        sub = self.elevations[row_off : row_off + height, col_off : col_off + width]
-        new_transform = self.transform * Affine.translation(col_off, row_off)
+        slice_info = _slice_from_bounds(bounds, self.transform, self.height, self.width)
+        if slice_info is None:
+            empty = np.empty((0, 0), dtype=self.elevations.dtype)
+            return TerrainGrid(elevations=empty, transform=self.transform, crs=self.crs)
+        row_start, row_stop, col_start, col_stop = slice_info
+        sub = self.elevations[row_start:row_stop, col_start:col_stop]
+        new_transform = self.transform * Affine.translation(col_start, row_start)
         return TerrainGrid(elevations=sub, transform=new_transform, crs=self.crs)
 
 
@@ -76,40 +106,47 @@ class TerrainLoader:
         with rasterio.open(self.path) as dataset:
             transform = dataset.transform
             array: NDArray[np.float32]
+
             if bounds is not None:
-                window = from_bounds(*bounds, transform=transform)
+                slice_info = _slice_from_bounds(bounds, transform, dataset.height, dataset.width)
+            else:
+                slice_info = None
+
+            if slice_info is not None:
+                row_start, row_stop, col_start, col_stop = slice_info
+                window = ((row_start, row_stop), (col_start, col_stop))
+                base_height = row_stop - row_start
+                base_width = col_stop - col_start
+                base_transform = transform * Affine.translation(col_start, row_start)
             else:
                 window = None
+                base_height = dataset.height
+                base_width = dataset.width
+                base_transform = transform
 
             if resolution_scale == 1.0:
                 array = dataset.read(1, window=window, out_dtype=np.float32)
-                out_transform = dataset.window_transform(window) if window else transform
+                out_transform = base_transform
             else:
                 scale = 1.0 / resolution_scale
                 out_shape = (
-                    int(dataset.height * scale),
-                    int(dataset.width * scale),
+                    max(1, int(round(base_height * scale))),
+                    max(1, int(round(base_width * scale))),
                 )
                 array = dataset.read(
                     1,
+                    window=window,
                     out_shape=out_shape,
                     resampling=Resampling.average,
                     out_dtype=np.float32,
-                    window=window,
                 )
-                if window:
-                    out_transform = dataset.window_transform(window)
-                else:
-                    out_transform = transform
-                out_transform = out_transform * Affine.scale(resolution_scale)
+                out_transform = base_transform * Affine.scale(resolution_scale)
 
             src_crs = dataset.crs
             if target_crs and src_crs and src_crs.to_string() != target_crs:
                 from rasterio.warp import Resampling, calculate_default_transform, reproject
-                if window is not None:
-                    src_bounds = rasterio.windows.bounds(window, transform)
-                else:
-                    src_bounds = dataset.bounds
+
+                src_bounds = array_bounds(array.shape[0], array.shape[1], out_transform)
                 dest_transform, dest_width, dest_height = calculate_default_transform(
                     src_crs, target_crs, array.shape[1], array.shape[0], *src_bounds
                 )
@@ -123,6 +160,7 @@ class TerrainLoader:
                     dst_crs=target_crs,
                     resampling=Resampling.bilinear,
                     dst_nodata=np.nan,
+                    num_threads=1,
                 )
                 array = destination
                 out_transform = dest_transform
