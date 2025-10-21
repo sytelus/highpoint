@@ -4,7 +4,7 @@
 
 This is a Python 3.11 project that should be installable as a module using pip command. The project contains,
 
-1. The module that encapsulates most of the functionality as Python library that can be imported in other projects. All the module source code should reside in subfolder that is named same as parent folder.
+1. The module that encapsulates most of the functionality as Python library that can be imported in other projects. All the module source code should reside in `src` subfolder in a folder that is named same as parent folder.
 2. The script that uses above module, contains `main()` and can be run by end user as an application.
 3. The unittests and end-to-end tests that resides in `tests` folder.
 4. Any additional scripts such as data downloading, processing, tutorial examples etc should go inside `scripts` folder.
