@@ -66,6 +66,7 @@ class TerrainLoader:
         self,
         bounds: Tuple[float, float, float, float] | None = None,
         resolution_scale: float = 1.0,
+        target_crs: str | None = None,
     ) -> TerrainGrid:
         """
         Read DEM data optionally clipped to bounds and resampled via averaging.
@@ -102,10 +103,37 @@ class TerrainLoader:
                     out_transform = transform
                 out_transform = out_transform * Affine.scale(resolution_scale)
 
+            src_crs = dataset.crs
+            if target_crs and src_crs and src_crs.to_string() != target_crs:
+                from rasterio.warp import Resampling, calculate_default_transform, reproject
+                if window is not None:
+                    src_bounds = rasterio.windows.bounds(window, transform)
+                else:
+                    src_bounds = dataset.bounds
+                dest_transform, dest_width, dest_height = calculate_default_transform(
+                    src_crs, target_crs, array.shape[1], array.shape[0], *src_bounds
+                )
+                destination = np.empty((dest_height, dest_width), dtype=np.float32)
+                reproject(
+                    source=array,
+                    destination=destination,
+                    src_transform=out_transform,
+                    src_crs=src_crs,
+                    dst_transform=dest_transform,
+                    dst_crs=target_crs,
+                    resampling=Resampling.bilinear,
+                    dst_nodata=np.nan,
+                )
+                array = destination
+                out_transform = dest_transform
+                crs_out = target_crs
+            else:
+                crs_out = src_crs.to_string() if src_crs else target_crs or ""
+
             return TerrainGrid(
                 elevations=array,
                 transform=out_transform,
-                crs=dataset.crs.to_string(),  # type: ignore[union-attr]
+                crs=crs_out,
             )
 
 

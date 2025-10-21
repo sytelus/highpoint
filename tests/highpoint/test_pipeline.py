@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from highpoint.analysis.candidates import TerrainCandidate
 from highpoint.analysis.visibility import compute_visibility_metrics
 from highpoint.config import load_config
-from highpoint.data.terrain import TerrainCandidate, generate_synthetic_dem
+from highpoint.data.terrain import generate_synthetic_dem
 from highpoint.pipeline import run_pipeline
 
 

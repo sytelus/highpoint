@@ -24,7 +24,9 @@ dependencies = [
   "rich>=13.7",
   "typer>=0.9",
   "pydantic>=2.5",
-  "matplotlib>=3.7"
+  "matplotlib>=3.7",
+  "omegaconf>=2.3",
+  "affine>=2.4"
 ]
 
 [project.optional-dependencies]

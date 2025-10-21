@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
 from pydantic import BaseModel, Field, validator
+
+from highpoint.simple_yaml import load_yaml
 
 
 class TerrainConfig(BaseModel):
@@ -95,8 +97,7 @@ class DatasetRegistry(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: Path) -> "DatasetRegistry":
-        with path.open("r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle)
+        raw = load_yaml(path)
         return cls(
             terrain=raw.get("terrain", {}),
             roads=raw.get("roads", {}),
@@ -124,6 +125,7 @@ def load_config(
     min_fov_deg: float,
     results_limit: int,
     dataset_config_path: Path = Path("configs/datasets.yaml"),
+    config_path: Optional[Path] = None,
     overrides: Optional[Dict[str, Any]] = None,
 ) -> AppConfig:
     """
@@ -142,16 +144,54 @@ def load_config(
         output=OutputConfig(results_limit=results_limit),
     )
 
-    mut: Dict[str, Any] = base.model_dump()
+    merged: Dict[str, Any] = base.model_dump()
+
+    if config_path:
+        file_conf = load_yaml(config_path)
+        merged = _deep_merge(merged, file_conf)
 
     if overrides:
         for dotted_key, value in overrides.items():
             if value is None:
                 continue
-            target = mut
-            parts = dotted_key.split(".")
-            for part in parts[:-1]:
-                target = target.setdefault(part, {})
-            target[parts[-1]] = value
+            _apply_override(merged, dotted_key, value)
 
-    return AppConfig.model_validate(mut)
+    config = AppConfig.model_validate(merged)
+    return _resolve_relative_paths(config)
+
+
+def _deep_merge(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in extra.items():
+        if (
+            key in base
+            and isinstance(base[key], dict)
+            and isinstance(value, dict)
+        ):
+            base[key] = _deep_merge(dict(base[key]), value)
+        else:
+            base[key] = value
+    return base
+
+
+def _apply_override(target: Dict[str, Any], dotted_key: str, value: Any) -> None:
+    parts = dotted_key.split(".")
+    current = target
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+    current[parts[-1]] = value
+
+
+def _resolve_relative_paths(config: AppConfig) -> AppConfig:
+    data_root = Path(os.environ.get("DATA_ROOT", "data"))
+    terrain_path = config.terrain.data_path
+    if terrain_path is not None and not terrain_path.is_absolute():
+        terrain_update = config.terrain.model_copy(update={"data_path": data_root / terrain_path})
+        return _resolve_relative_paths(
+            config.model_copy(update={"terrain": terrain_update})
+        )
+
+    road_path = config.roads.data_path
+    if road_path is not None and not road_path.is_absolute():
+        roads_update = config.roads.model_copy(update={"data_path": data_root / road_path})
+        return config.model_copy(update={"roads": roads_update})
+    return config

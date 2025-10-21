@@ -1,0 +1,24 @@
+observer:
+  latitude: 47.6205
+  longitude: -122.3493
+  altitude_m: 100.0
+
+terrain:
+  data_path: "toy/dem_synthetic.tif"
+  search_radius_km: 2.0
+
+roads:
+  data_path: "toy/roads_synthetic.geojson"
+  max_walk_minutes: 30.0
+  max_drive_minutes: null
+
+visibility:
+  min_visibility_miles: 0.5
+  min_field_of_view_deg: 25.0
+  azimuth_deg: 0.0
+  azimuth_tolerance_deg: 60.0
+  rays_full_circle: 72
+
+output:
+  results_limit: 5
+  rich_table: true

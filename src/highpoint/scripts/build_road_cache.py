@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -22,7 +23,8 @@ def main(
     east: float = typer.Option(..., help="Eastern longitude of bounding box."),
     west: float = typer.Option(..., help="Western longitude of bounding box."),
     output: Path = typer.Option(
-        Path("assets/roads/cache/roads.geojson"), help="Output GeoJSON path for the filtered network."
+        Path(os.environ.get("DATA_ROOT", "data")) / "roads" / "cache" / "roads.geojson",
+        help="Output GeoJSON path for the filtered network.",
     ),
     network_type: str = typer.Option("drive", help="OSMnx network type to request."),
     custom_filter: Optional[str] = typer.Option(

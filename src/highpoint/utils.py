@@ -42,10 +42,16 @@ def great_circle_distance_m(origin: Tuple[float, float], dest: Tuple[float, floa
     return distance
 
 
+def utm_epsg_for_latlon(lat: float, lon: float) -> int:
+    """Return EPSG code for the UTM zone covering the provided coordinate."""
+    zone = int((lon + 180) / 6) + 1
+    epsg = 32600 + zone if lat >= 0 else 32700 + zone
+    return epsg
+
+
 def project_to_utm(lat: float, lon: float) -> Transformer:
     """Construct a transformer to and from the best-guess UTM zone for a coordinate."""
-    zone = int((lon + 180) / 6) + 1
-    epsg = 32600 + zone
+    epsg = utm_epsg_for_latlon(lat, lon)
     return Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
 
 

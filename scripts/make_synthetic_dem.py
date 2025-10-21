@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import typer
@@ -14,7 +15,8 @@ app = typer.Typer(help="Create synthetic DEM assets for tests or demos.")
 @app.command()
 def main(
     output: Path = typer.Argument(
-        Path("assets/sample_data/dem_synthetic.tif"), help="Output GeoTIFF path."
+        Path(os.environ.get("DATA_ROOT", "data")) / "toy" / "dem_synthetic.tif",
+        help="Output GeoTIFF path.",
     )
 ) -> None:
     grid = generate_synthetic_dem()

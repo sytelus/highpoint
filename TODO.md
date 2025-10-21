@@ -1,0 +1,5 @@
+- Add automated mosaicking/reprojection helpers so Washington- and US-wide DEM downloads produce ready-to-use GeoTIFF caches.
+- Integrate NLCD or building-footprint obstruction models to replace synthetic height assumptions.
+- Persist road/terrain caches between runs and surface cache invalidation commands.
+- Expand integration tests to exercise the CLI against clipped real datasets once fixtures are curated.
+- Implement optional routing against OSRM/GraphHopper for accurate driving times.

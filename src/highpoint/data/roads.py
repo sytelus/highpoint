@@ -38,13 +38,21 @@ class RoadNetwork:
         self.crs = crs
         self._transformer = transformer_to_projected
 
+    @property
+    def geometries(self) -> List[LineString]:
+        """Expose underlying geometries (used for synthetic exports)."""
+        return list(self._geometries)
+
     @classmethod
     def from_geojson(cls, path: Path, target_crs: str) -> "RoadNetwork":
         """Load road geometries from GeoJSON and reproject to target CRS."""
         gdf = gpd.read_file(path)
         if gdf.empty:
             raise ValueError(f"GeoJSON at {path} contains no features.")
-        gdf = gdf.to_crs(target_crs)
+        if gdf.crs is None or _looks_projected(gdf):
+            gdf = gdf.set_crs(target_crs, allow_override=True)
+        else:
+            gdf = gdf.to_crs(target_crs)
         lines = [geom for geom in gdf.geometry if isinstance(geom, LineString)]
         return cls(lines, crs=target_crs)
 
@@ -95,3 +103,8 @@ def estimate_driving_time_minutes(
     straight_distance_m = float(np.hypot(dx, dy))
     adjusted_distance_km = straight_distance_m / 1000.0 * 1.35
     return (adjusted_distance_km / driving_speed_kmh) * 60.0
+
+
+def _looks_projected(gdf: gpd.GeoDataFrame) -> bool:
+    minx, miny, maxx, maxy = gdf.total_bounds
+    return any(abs(value) > 360 for value in (minx, miny, maxx, maxy))

@@ -1,13 +1,12 @@
 PYTHON ?= python3
 VENV_DIR ?= .venv
 
-.PHONY: bootstrap lint test run fmt typeclean clean
+.PHONY: bootstrap lint test run fmt typeclean clean install
 
-bootstrap:
-	$(PYTHON) -m venv $(VENV_DIR)
-	$(VENV_DIR)/bin/pip install --upgrade pip
-	$(VENV_DIR)/bin/pip install -r requirements.txt
-	$(VENV_DIR)/bin/pip install -e .[dev]
+bootstrap: install
+
+install:
+	./install.sh
 
 lint:
 	$(VENV_DIR)/bin/ruff check src tests
