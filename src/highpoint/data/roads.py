@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
 
 import geopandas as gpd
 import numpy as np
-from numpy.typing import NDArray
 from shapely.geometry import LineString, MultiLineString
 
 
@@ -16,7 +15,7 @@ from shapely.geometry import LineString, MultiLineString
 class RoadAccessPoint:
     """Details about the nearest drivable location relative to a terrain candidate."""
 
-    coordinate: Tuple[float, float]
+    coordinate: tuple[float, float]
     distance_m: float
     walking_minutes: float
 
@@ -29,18 +28,18 @@ class RoadNetwork:
         geometries: Iterable[LineString],
         crs: str,
     ) -> None:
-        self._geometries: List[LineString] = list(geometries)
+        self._geometries: list[LineString] = list(geometries)
         if not self._geometries:
             raise ValueError("RoadNetwork requires at least one geometry.")
         self.crs = crs
 
     @property
-    def geometries(self) -> List[LineString]:
+    def geometries(self) -> list[LineString]:
         """Expose underlying geometries (used for synthetic exports)."""
         return list(self._geometries)
 
     @classmethod
-    def from_geojson(cls, path: Path, target_crs: str) -> "RoadNetwork":
+    def from_geojson(cls, path: Path, target_crs: str) -> RoadNetwork:
         """Load road geometries from GeoJSON and reproject to target CRS."""
         gdf = gpd.read_file(path)
         if gdf.empty:
@@ -57,20 +56,16 @@ class RoadNetwork:
                 gdf = gdf.set_crs(target_crs, allow_override=True)
             else:
                 gdf = gdf.to_crs(target_crs)
-        lines: List[LineString] = []
+        lines: list[LineString] = []
         for geom in gdf.geometry:
             if isinstance(geom, LineString):
                 lines.append(geom)
             elif isinstance(geom, MultiLineString):
-                lines.extend(
-                    segment
-                    for segment in geom.geoms
-                    if isinstance(segment, LineString)
-                )
+                lines.extend(segment for segment in geom.geoms if isinstance(segment, LineString))
         return cls(lines, crs=target_crs)
 
     @classmethod
-    def synthetic(cls, target_crs: str = "EPSG:32610") -> "RoadNetwork":
+    def synthetic(cls, target_crs: str = "EPSG:32610") -> RoadNetwork:
         """Construct a small synthetic road grid for tests."""
         base_x, base_y = 500000, 5_200_000
         lines = [
@@ -82,13 +77,13 @@ class RoadNetwork:
 
     def nearest_access_point(
         self,
-        point_xy: Tuple[float, float],
+        point_xy: tuple[float, float],
         walking_speed_kmh: float,
     ) -> RoadAccessPoint:
         """Find the shortest walking route from a projected coordinate to the road network."""
         target_x, target_y = point_xy
         best_distance_sq = np.inf
-        best_coordinate: Optional[Tuple[float, float]] = None
+        best_coordinate: tuple[float, float] | None = None
 
         for geom in self._geometries:
             coords = np.asarray(geom.coords, dtype=np.float64)
@@ -96,14 +91,15 @@ class RoadNetwork:
                 continue
             segments_start = coords[:-1]
             segments_end = coords[1:]
-            for start, end in zip(segments_start, segments_end):
+            for start, end in zip(segments_start, segments_end, strict=False):
                 dx = end[0] - start[0]
                 dy = end[1] - start[1]
                 segment_length_sq = dx * dx + dy * dy
                 if segment_length_sq == 0.0:
                     candidate_x, candidate_y = float(start[0]), float(start[1])
                 else:
-                    t = ((target_x - start[0]) * dx + (target_y - start[1]) * dy) / segment_length_sq
+                    numerator = ((target_x - start[0]) * dx) + ((target_y - start[1]) * dy)
+                    t = numerator / segment_length_sq
                     t = min(1.0, max(0.0, t))
                     candidate_x = float(start[0] + t * dx)
                     candidate_y = float(start[1] + t * dy)
@@ -127,8 +123,8 @@ class RoadNetwork:
 
 
 def estimate_driving_time_minutes(
-    observer_xy: Tuple[float, float],
-    road_point_xy: Tuple[float, float],
+    observer_xy: tuple[float, float],
+    road_point_xy: tuple[float, float],
     driving_speed_kmh: float,
 ) -> float:
     """

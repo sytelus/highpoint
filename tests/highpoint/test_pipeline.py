@@ -28,6 +28,8 @@ def test_pipeline_generates_results_with_synthetic_data() -> None:
     assert output.results, "pipeline should return at least one candidate"
     top = output.results[0]
     assert top.drivability is not None
+    assert top.drivability.drive_minutes is not None
+    assert top.drivability.drive_distance_km is not None
     assert top.visibility.max_distance_m > 0.0
     assert top.visibility.actual_fov_deg >= 0.0
 
@@ -37,7 +39,13 @@ def test_visibility_metrics_cover_sector() -> None:
     xs, ys = grid.coordinates()
     row = grid.height // 2
     col = grid.width // 2
-    candidate = TerrainCandidate(x=float(xs[row, col]), y=float(ys[row, col]), elevation_m=float(grid.elevations[row, col]), row=row, col=col)
+    candidate = TerrainCandidate(
+        x=float(xs[row, col]),
+        y=float(ys[row, col]),
+        elevation_m=float(grid.elevations[row, col]),
+        row=row,
+        col=col,
+    )
     config = load_config(
         observer_lat=47.0,
         observer_lon=-122.0,

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
-from numpy.typing import NDArray
 from scipy.ndimage import map_coordinates
 
 from highpoint.analysis.candidates import TerrainCandidate
@@ -24,7 +22,7 @@ class VisibilityMetrics:
     mean_distance_m: float
     median_distance_m: float
     actual_fov_deg: float
-    ray_results: Dict[float, float]
+    ray_results: dict[float, float]
 
 
 def compute_visibility_metrics(
@@ -42,13 +40,14 @@ def compute_visibility_metrics(
     az_step = 360.0 / visibility_cfg.rays_full_circle
     angles = [i * az_step for i in range(visibility_cfg.rays_full_circle)]
 
-    ray_results: Dict[float, float] = {}
+    ray_results: dict[float, float] = {}
     max_distance_m = 0.0
-    distances_for_sector: List[float] = []
-    distances_meeting_requirement: List[float] = []
+    distances_for_sector: list[float] = []
+    distances_meeting_requirement: list[float] = []
 
     sector_start, sector_end = azimuth_range(
-        visibility_cfg.azimuth_deg, visibility_cfg.min_field_of_view_deg
+        visibility_cfg.azimuth_deg,
+        visibility_cfg.min_field_of_view_deg,
     )
     min_required_distance = miles_to_meters(visibility_cfg.min_visibility_miles)
 

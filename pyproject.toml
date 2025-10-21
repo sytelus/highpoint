@@ -46,11 +46,13 @@ include = "\\.pyi?$"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-select = ["E", "F", "I", "W", "N", "B", "UP", "ANN", "ASYNC", "COM"]
-ignore = ["ANN101", "ANN102"]
 src = ["src"]
 
-[tool.ruff.isort]
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "N", "B", "UP", "ANN", "ASYNC", "COM"]
+ignore = ["B008", "ANN401"]
+
+[tool.ruff.lint.isort]
 known-first-party = ["highpoint"]
 
 [tool.mypy]

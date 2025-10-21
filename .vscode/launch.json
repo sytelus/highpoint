@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "HighPoint ToyRun",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATA_ROOT": "${workspaceFolder}/data",
+        "OUT_DIR": "${workspaceFolder}/out"
+      },
+      "args": [
+        "--config",
+        "configs/toyrun.yaml"
+      ],
+      "justMyCode": true
+    }
+  ]
+}

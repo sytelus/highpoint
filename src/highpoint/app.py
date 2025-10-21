@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, cast
 
 import typer
+from omegaconf import DictConfig, OmegaConf
 
-from highpoint.config import AppConfig, load_config
-from highpoint.simple_yaml import load_yaml
+from highpoint.config import load_config
 from highpoint.pipeline import run_pipeline
 from highpoint.render.map import render_map
 from highpoint.reporting.report import emit_report
@@ -29,7 +29,10 @@ def main(
     latitude: float | None = typer.Argument(None, help="Observer latitude in decimal degrees."),
     longitude: float | None = typer.Argument(None, help="Observer longitude in decimal degrees."),
     altitude: float | None = typer.Option(
-        None, "--altitude", "-a", help="Observer altitude above sea level in meters."
+        None,
+        "--altitude",
+        "-a",
+        help="Observer altitude above sea level in meters.",
     ),
     azimuth: float | None = typer.Option(
         None,
@@ -50,20 +53,23 @@ def main(
         help="Minimum field-of-view in degrees.",
     ),
     results: int | None = typer.Option(
-        None, "--results", "-n", help="Number of target viewpoints to return."
+        None,
+        "--results",
+        "-n",
+        help="Number of target viewpoints to return.",
     ),
-    config_file: Optional[Path] = typer.Option(
+    config_file: Path | None = typer.Option(
         None,
         "--config",
         "-c",
         help="Optional OmegaConf YAML configuration to load before applying CLI overrides.",
     ),
-    terrain_file: Optional[Path] = typer.Option(
+    terrain_file: Path | None = typer.Option(
         None,
         "--terrain-file",
         help="Path to a projected DEM GeoTIFF covering the search area.",
     ),
-    roads_file: Optional[Path] = typer.Option(
+    roads_file: Path | None = typer.Option(
         None,
         "--roads-file",
         help="Path to a GeoJSON snippet of drivable roads in the search area.",
@@ -74,49 +80,56 @@ def main(
         help="Search radius in kilometers around the observer.",
     ),
     walk_limit: float | None = typer.Option(
-        None, "--max-walk", help="Maximum walking time in minutes."
+        None,
+        "--max-walk",
+        help="Maximum walking time in minutes.",
     ),
-    drive_limit: Optional[float] = typer.Option(
+    drive_limit: float | None = typer.Option(
         None,
         "--max-drive",
         help="Optional maximum driving time from observer to access point in minutes.",
     ),
-    export_csv: Optional[Path] = typer.Option(None, "--export-csv", help="Optional CSV export path."),
-    export_geojson: Optional[Path] = typer.Option(
-        None, "--export-geojson", help="Optional GeoJSON export path."
+    export_csv: Path | None = typer.Option(None, "--export-csv", help="Optional CSV export path."),
+    export_geojson: Path | None = typer.Option(
+        None,
+        "--export-geojson",
+        help="Optional GeoJSON export path.",
     ),
-    render_png: Optional[Path] = typer.Option(None, "--render-png", help="Optional overview PNG path."),
+    render_png: Path | None = typer.Option(
+        None,
+        "--render-png",
+        help="Optional overview PNG path.",
+    ),
     log_level: str = typer.Option("INFO", "--log-level", help="Logging level (DEBUG, INFO, ...)."),
 ) -> None:
     """Compute visibility-aware scenic viewpoints."""
     _configure_logging(log_level)
 
-    file_config: Dict[str, Any] = {}
+    file_config: DictConfig | None = None
     if config_file:
-        file_config = load_yaml(config_file)
+        file_config = cast(DictConfig, OmegaConf.load(config_file))
 
-    def get_from_file(path: list[str], default: Any = None) -> Any:
-        node: Any = file_config
-        for part in path:
-            if not isinstance(node, dict) or part not in node:
-                return default
-            node = node[part]
-        return node
+    def get_from_file(path: str, default: Any = None) -> Any:
+        if file_config is None:
+            return default
+        return OmegaConf.select(file_config, path, default=default)
 
-    observer_lat = latitude if latitude is not None else get_from_file(["observer", "latitude"])
-    observer_lon = longitude if longitude is not None else get_from_file(["observer", "longitude"])
+    observer_lat = latitude if latitude is not None else get_from_file("observer.latitude")
+    observer_lon = longitude if longitude is not None else get_from_file("observer.longitude")
     if observer_lat is None or observer_lon is None:
         raise typer.BadParameter("Latitude and longitude must be supplied via CLI or config file.")
 
-    observer_alt = altitude if altitude is not None else get_from_file(["observer", "altitude_m"], 0.0)
-    azimuth_val = azimuth if azimuth is not None else get_from_file(["visibility", "azimuth_deg"], 0.0)
+    observer_alt = altitude if altitude is not None else get_from_file("observer.altitude_m", 0.0)
+    azimuth_val = azimuth if azimuth is not None else get_from_file("visibility.azimuth_deg", 0.0)
     min_visibility_val = (
         min_visibility
         if min_visibility is not None
-        else get_from_file(["visibility", "min_visibility_miles"], 3.0)
+        else get_from_file("visibility.min_visibility_miles", 3.0)
     )
-    min_fov_val = min_fov if min_fov is not None else get_from_file(["visibility", "min_field_of_view_deg"], 30.0)
-    results_val = results if results is not None else get_from_file(["output", "results_limit"], 5)
+    min_fov_val = (
+        min_fov if min_fov is not None else get_from_file("visibility.min_field_of_view_deg", 30.0)
+    )
+    results_val = results if results is not None else get_from_file("output.results_limit", 5)
 
     overrides_raw = {
         "terrain.search_radius_km": search_radius,

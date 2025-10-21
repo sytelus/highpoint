@@ -1,0 +1,34 @@
+{
+    "workbench.colorCustomizations": {
+        "titleBar.border": "#ebe8e8",
+        "statusBar.background": "#370469",
+        "statusBar.debuggingBackground": "#2a5607",
+        "statusBar.noFolderBackground": "#39267d",
+        "statussBar.prominentBackground": "#7C21D7",
+        "statusBar.foreground": "#ebe8e8",
+        "editorOverviewRuler.selectionHighlightForeground": "#01c8cf",
+        "editorOverviewRuler.wordHighlightForeground": "#95e295",
+        "editorOverviewRuler.modifiedForeground": "#00000000",
+        "editorOverviewRuler.addedForeground": "#00000000",
+        "editorOverviewRuler.deletedForeground": "#13474c00",
+        "editorOverviewRuler.infoForeground": "#00000000",
+        "editor.selectionBackground": "#4373aa",
+        "editor.selectionHighlightBackground": "#7b19b3",
+        "tab.activeBackground": "#0d6b09",
+        "tab.activeBorderTop": "#ff0000",
+        "scrollbarSlider.background": "#4c00ff",
+        "editor.hideCursorInOverviewRuler": false,
+        "editor.overviewRulerBorder": true,
+        "activityBar.background": "#0F3235",
+        "titleBar.activeBackground": "#15474A",
+        "titleBar.activeForeground": "#F5FCFC"
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": [],
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}

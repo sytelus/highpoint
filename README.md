@@ -44,8 +44,9 @@ python main.py --config configs/toyrun.yaml --render-png "$OUT_DIR/toy.png"
 
 ```
 python scripts/fetch_datasets.py --region washington
-python -m highpoint.scripts.build_road_cache --pbf "$DATA_ROOT/roads/raw/washington-latest.osm.pbf" \
-  --bbox 47.4 47.7 -122.6 -122.1 --output "$DATA_ROOT/roads/cache/seattle.geojson"
+python -m highpoint.scripts.build_road_cache \
+  --north 47.7 --south 47.4 --east -122.1 --west -122.6 \
+  --output "$DATA_ROOT/roads/cache/seattle.geojson"
 python main.py 47.6 -122.3 --azimuth 0 --min-visibility 4 --terrain-file "$DATA_ROOT/terrain/raw/n47w123.tif" \
   --roads-file "$DATA_ROOT/roads/cache/seattle.geojson" --render-png "$OUT_DIR/seattle.png"
 ```
@@ -54,15 +55,16 @@ python main.py 47.6 -122.3 --azimuth 0 --min-visibility 4 --terrain-file "$DATA_
 
 ```
 python scripts/fetch_datasets.py --region us
-python -m highpoint.scripts.build_road_cache --pbf "$DATA_ROOT/roads/raw/us-latest.osm.pbf" \
-  --bbox 37.5 38.0 -122.6 -121.8 --output "$DATA_ROOT/roads/cache/napa.geojson"
+python -m highpoint.scripts.build_road_cache \
+  --north 38.0 --south 37.5 --east -121.8 --west -122.6 \
+  --output "$DATA_ROOT/roads/cache/napa.geojson"
 python main.py 37.8 -122.4 --terrain-file "$DATA_ROOT/terrain/raw/n38w123.tif" \
   --roads-file "$DATA_ROOT/roads/cache/napa.geojson" --results 10 --render-png "$OUT_DIR/napa.png"
 ```
 
 ## Development
 
-- Docs: see `ALGORITHM.md`, `TERRAIN_DATA_SOURCES.md`, and `ROAD_DATA_SOURCES.md` for research notes.
+- Docs: see `docs/ALGORITHM.md`, `docs/TERRAIN_DATA_SOURCES.md`, `docs/ROAD_DATA_SOURCES.md`, and `docs/configuration.md` for research notes and environment details.
 - Linting & tests: `make lint` and `make test` (or `pytest`).
 - Configuration: override any knob via `configs/toyrun.yaml` or CLI flags (`python main.py --help`).
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
 
 import numpy as np
 import rasterio
@@ -14,11 +14,11 @@ from rasterio.transform import Affine, array_bounds
 
 
 def _slice_from_bounds(
-    bounds: Tuple[float, float, float, float],
+    bounds: tuple[float, float, float, float],
     transform: Affine,
     height: int,
     width: int,
-) -> Optional[Tuple[int, int, int, int]]:
+) -> tuple[int, int, int, int] | None:
     """
     Compute integer slice indices covering ``bounds`` within a raster.
 
@@ -53,19 +53,19 @@ class TerrainGrid:
     crs: str
 
     @property
-    def resolution(self) -> Tuple[float, float]:
+    def resolution(self) -> tuple[float, float]:
         """Return pixel size in projected units."""
         return self.transform.a, -self.transform.e
 
     @property
     def height(self) -> int:
-        return self.elevations.shape[0]
+        return int(self.elevations.shape[0])
 
     @property
     def width(self) -> int:
-        return self.elevations.shape[1]
+        return int(self.elevations.shape[1])
 
-    def coordinates(self) -> Tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def coordinates(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Return meshgrid arrays of x, y projected coordinates at cell centers."""
         rows = np.arange(self.height, dtype=np.float64)
         cols = np.arange(self.width, dtype=np.float64)
@@ -74,7 +74,7 @@ class TerrainGrid:
         ys = self.transform.f + (row_grid + 0.5) * self.transform.e
         return xs, ys
 
-    def subset(self, bounds: Tuple[float, float, float, float]) -> "TerrainGrid":
+    def subset(self, bounds: tuple[float, float, float, float]) -> TerrainGrid:
         """Return a clipped grid within projected bounds (minx, miny, maxx, maxy)."""
         slice_info = _slice_from_bounds(bounds, self.transform, self.height, self.width)
         if slice_info is None:
@@ -94,7 +94,7 @@ class TerrainLoader:
 
     def read(
         self,
-        bounds: Tuple[float, float, float, float] | None = None,
+        bounds: tuple[float, float, float, float] | None = None,
         resolution_scale: float = 1.0,
         target_crs: str | None = None,
     ) -> TerrainGrid:
@@ -144,11 +144,21 @@ class TerrainLoader:
 
             src_crs = dataset.crs
             if target_crs and src_crs and src_crs.to_string() != target_crs:
-                from rasterio.warp import Resampling, calculate_default_transform, reproject
+                from rasterio.warp import (
+                    Resampling as WarpResampling,
+                )
+                from rasterio.warp import (
+                    calculate_default_transform,
+                    reproject,
+                )
 
                 src_bounds = array_bounds(array.shape[0], array.shape[1], out_transform)
                 dest_transform, dest_width, dest_height = calculate_default_transform(
-                    src_crs, target_crs, array.shape[1], array.shape[0], *src_bounds
+                    src_crs,
+                    target_crs,
+                    array.shape[1],
+                    array.shape[0],
+                    *src_bounds,
                 )
                 destination = np.empty((dest_height, dest_width), dtype=np.float32)
                 reproject(
@@ -158,7 +168,7 @@ class TerrainLoader:
                     src_crs=src_crs,
                     dst_transform=dest_transform,
                     dst_crs=target_crs,
-                    resampling=Resampling.bilinear,
+                    resampling=WarpResampling.bilinear,
                     dst_nodata=np.nan,
                     num_threads=1,
                 )
@@ -176,7 +186,7 @@ class TerrainLoader:
 
 
 def generate_synthetic_dem(
-    size: Tuple[int, int] = (40, 40),
+    size: tuple[int, int] = (40, 40),
     base_height: float = 50.0,
     peak_height: float = 200.0,
 ) -> TerrainGrid:
@@ -224,8 +234,8 @@ def flatten_coordinates(grid: TerrainGrid) -> NDArray[np.float64]:
     return stacked
 
 
-def iter_coordinates(grid: TerrainGrid) -> Iterable[Tuple[float, float]]:
+def iter_coordinates(grid: TerrainGrid) -> Iterable[tuple[float, float]]:
     """Yield projected coordinate tuples for each cell."""
     xs, ys = grid.coordinates()
-    for x, y in zip(xs.ravel(), ys.ravel()):
+    for x, y in zip(xs.ravel(), ys.ravel(), strict=False):
         yield float(x), float(y)

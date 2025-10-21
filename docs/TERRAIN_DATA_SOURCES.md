@@ -14,7 +14,7 @@ HighPoint requires a 3D surface model of Washington State with roughly 30 m or f
 ## Acquisition Instructions
 
 1. Install GDAL 3.4+ and rasterio (`pip install rasterio`).
-2. Visit `https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/TIFF/` and identify the tiles covering Washington (filenames start with `USGS_1_nXXwYYY`). Download needed tiles with `curl -O`.
+2. Visit `https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/TIFF/current/` and identify the tiles covering Washington (filenames start with `USGS_1_nXXwYYY`). Download needed tiles with `curl -O`.
 3. Optionally clip or mosaic using GDAL:
        gdalwarp USGS_1_n47w123.tif USGS_1_n48w123.tif -t_srs EPSG:32610 -r bilinear -dstnodata -9999 washington_dem.tif
 4. Store raw downloads under `data/terrain/raw/` and cached reprojected mosaics under `data/terrain/cache/` (or inside `$DATA_ROOT` when configured).

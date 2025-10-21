@@ -7,7 +7,6 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 from urllib.request import urlretrieve
 
 import typer
@@ -15,7 +14,7 @@ import typer
 from highpoint.data.roads import RoadNetwork
 from highpoint.data.terrain import generate_synthetic_dem, save_grid_to_geotiff
 
-SRTM_BASE = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF"
+SRTM_BASE = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/current"
 GEOFABRIK_BASE = "https://download.geofabrik.de"
 
 app = typer.Typer(help="Download HighPoint terrain and road datasets.")
@@ -24,9 +23,9 @@ app = typer.Typer(help="Download HighPoint terrain and road datasets.")
 @dataclass
 class RegionConfig:
     name: str
-    bbox: Optional[tuple[float, float, float, float]]
-    terrain_tiles: Optional[List[str]]
-    roads_url: Optional[str]
+    bbox: tuple[float, float, float, float] | None
+    terrain_tiles: list[str] | None
+    roads_url: str | None
     description: str
 
 
@@ -43,7 +42,9 @@ REGIONS = {
         bbox=(45.5, 49.0, -125.0, -116.0),
         terrain_tiles=None,
         roads_url=f"{GEOFABRIK_BASE}/north-america/us/washington-latest.osm.pbf",
-        description="Washington State coverage using SRTM 1 arc-second tiles and Geofabrik OSM extract.",
+        description=(
+            "Washington State coverage using SRTM 1 arc-second tiles and Geofabrik " "OSM extract."
+        ),
     ),
     "us": RegionConfig(
         name="us",
@@ -72,9 +73,9 @@ def ensure_directories(root: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def tiles_for_bbox(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> List[str]:
+def tiles_for_bbox(lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> list[str]:
     """Return SRTM tile identifiers for the provided bounding box."""
-    tiles: List[str] = []
+    tiles: list[str] = []
     lat_start = math.floor(lat_min)
     lat_end = math.ceil(lat_max)
     lon_start = math.floor(lon_min)
@@ -126,7 +127,7 @@ def create_toy_assets(root: Path, dry_run: bool) -> None:
                     "type": "Feature",
                     "geometry": json.loads(json.dumps(line.__geo_interface__)),
                     "properties": {"source": "synthetic"},
-                }
+                },
             )
         geojson = {"type": "FeatureCollection", "features": features}
         roads_path.write_text(json.dumps(geojson, indent=2), encoding="utf-8")
@@ -137,7 +138,11 @@ def create_toy_assets(root: Path, dry_run: bool) -> None:
 @app.command()
 def main(
     region: str = typer.Option(
-        "toy", "--region", "-r", help="Dataset region: toy, washington, us.", case_sensitive=False
+        "toy",
+        "--region",
+        "-r",
+        help="Dataset region: toy, washington, us.",
+        case_sensitive=False,
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print actions without downloading."),
 ) -> None:

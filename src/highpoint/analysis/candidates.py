@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
-from numpy.typing import NDArray
 from scipy.ndimage import gaussian_filter, maximum_filter
 
 from highpoint.data.terrain import TerrainGrid
@@ -28,7 +27,7 @@ def identify_candidates(
     neighborhood: int = 3,
     min_prominence_m: float = 10.0,
     min_slope_deg: float = 2.0,
-) -> List[TerrainCandidate]:
+) -> list[TerrainCandidate]:
     """
     Detect local maxima in the DEM as candidate viewpoints.
 
@@ -44,8 +43,8 @@ def identify_candidates(
 
     xs, ys = grid.coordinates()
 
-    candidates: List[TerrainCandidate] = []
-    for row, col in zip(*np.where(mask)):
+    candidates: list[TerrainCandidate] = []
+    for row, col in zip(*np.where(mask), strict=False):
         elevation = float(grid.elevations[row, col])
         neighborhood_slice = grid.elevations[
             max(row - neighborhood, 0) : row + neighborhood + 1,
@@ -64,7 +63,7 @@ def identify_candidates(
                 elevation_m=elevation,
                 row=row,
                 col=col,
-            )
+            ),
         )
     return candidates
 
@@ -72,7 +71,7 @@ def identify_candidates(
 def cluster_candidates(
     candidates: Sequence[TerrainCandidate],
     grid_size_m: float,
-) -> List[TerrainCandidate]:
+) -> list[TerrainCandidate]:
     """
     Down-sample candidates by grouping them into square bins of size ``grid_size_m``.
 
@@ -81,7 +80,7 @@ def cluster_candidates(
     if not candidates:
         return []
 
-    buckets: dict[Tuple[int, int], TerrainCandidate] = {}
+    buckets: dict[tuple[int, int], TerrainCandidate] = {}
     for candidate in candidates:
         key = (
             int(candidate.x // grid_size_m),

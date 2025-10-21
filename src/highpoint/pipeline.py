@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 from pyproj import Transformer
@@ -17,7 +16,12 @@ from highpoint.analysis.visibility import VisibilityMetrics, compute_visibility_
 from highpoint.config import AppConfig
 from highpoint.data.roads import RoadNetwork
 from highpoint.data.terrain import TerrainGrid, TerrainLoader, generate_synthetic_dem
-from highpoint.utils import great_circle_distance_m, meters_to_miles, miles_to_meters, utm_epsg_for_latlon
+from highpoint.utils import (
+    great_circle_distance_m,
+    meters_to_miles,
+    miles_to_meters,
+    utm_epsg_for_latlon,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -28,10 +32,10 @@ class ViewpointResult:
 
     candidate: TerrainCandidate
     visibility: VisibilityMetrics
-    drivability: Optional[DrivabilityResult]
-    candidate_latlon: Tuple[float, float]
-    access_latlon: Optional[Tuple[float, float]]
-    access_altitude_m: Optional[float]
+    drivability: DrivabilityResult | None
+    candidate_latlon: tuple[float, float]
+    access_latlon: tuple[float, float] | None
+    access_altitude_m: float | None
     straight_line_miles: float
     score: float
 
@@ -42,7 +46,7 @@ class PipelineOutput:
 
     terrain: TerrainGrid
     road_network: RoadNetwork
-    results: List[ViewpointResult]
+    results: list[ViewpointResult]
 
 
 def run_pipeline(config: AppConfig) -> PipelineOutput:
@@ -65,7 +69,7 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
     LOG.info("Loading road network...")
     road_network = _load_roads(config, terrain_grid.crs)
 
-    results: List[ViewpointResult] = []
+    results: list[ViewpointResult] = []
     inv_transform = transformer_xy_to_ll
 
     for candidate in clustered:
@@ -89,7 +93,7 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
             access_lonlat = tuple(inv_transform.transform(access_x, access_y))
             access_latlon = (access_lonlat[1], access_lonlat[0])
             access_altitude = float(
-                _sample_elevation(terrain_grid, access_x, access_y) if terrain_grid else np.nan
+                _sample_elevation(terrain_grid, access_x, access_y) if terrain_grid else np.nan,
             )
 
         straight_line_m = great_circle_distance_m(
@@ -108,7 +112,7 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
                 access_altitude_m=access_altitude,
                 straight_line_miles=meters_to_miles(straight_line_m),
                 score=score,
-            )
+            ),
         )
 
     sorted_results = sorted(results, key=lambda item: item.score, reverse=True)
@@ -119,20 +123,22 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
     )
 
 
-def _load_terrain(config: AppConfig) -> Tuple[TerrainGrid, Tuple[float, float], Transformer]:
+def _load_terrain(config: AppConfig) -> tuple[TerrainGrid, tuple[float, float], Transformer]:
     terrain_cfg = config.terrain
     if terrain_cfg.data_path is None:
         LOG.warning("No terrain path configured; using synthetic DEM fixture.")
         grid = generate_synthetic_dem()
-        transformer = Transformer.from_crs("EPSG:4326", grid.crs, always_xy=True)
     else:
         path = Path(terrain_cfg.data_path)
         with raster_open(path) as dataset:
-            dataset_crs = dataset.crs.to_string()  # type: ignore[union-attr]
+            dataset_crs_obj = dataset.crs
+            dataset_crs = dataset_crs_obj.to_string() if dataset_crs_obj else ""
         observer_lat = config.observer.latitude
         observer_lon = config.observer.longitude
         utm_epsg = utm_epsg_for_latlon(observer_lat, observer_lon)
         utm_crs = f"EPSG:{utm_epsg}"
+        if not dataset_crs:
+            dataset_crs = utm_crs
         to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
         observer_x, observer_y = to_utm.transform(observer_lon, observer_lat)
         radius_m = terrain_cfg.search_radius_km * 1000.0
@@ -150,7 +156,7 @@ def _load_terrain(config: AppConfig) -> Tuple[TerrainGrid, Tuple[float, float], 
             (bounds_utm[2], bounds_utm[3]),
         ]
         transformed = [to_dataset.transform(x, y) for x, y in corners]
-        xs, ys = zip(*transformed)
+        xs, ys = zip(*transformed, strict=False)
         dataset_bounds = (min(xs), min(ys), max(xs), max(ys))
         loader = TerrainLoader(path)
         grid = loader.read(
@@ -164,12 +170,18 @@ def _load_terrain(config: AppConfig) -> Tuple[TerrainGrid, Tuple[float, float], 
                 resolution_scale=terrain_cfg.resolution_scale,
                 target_crs=utm_crs,
             )
-        transformer = to_utm
     observer_xy = Transformer.from_crs("EPSG:4326", grid.crs, always_xy=True).transform(
-        config.observer.longitude, config.observer.latitude
+        config.observer.longitude,
+        config.observer.latitude,
     )
-    return grid, (observer_xy[0], observer_xy[1]), Transformer.from_crs(
-        grid.crs, "EPSG:4326", always_xy=True
+    return (
+        grid,
+        (observer_xy[0], observer_xy[1]),
+        Transformer.from_crs(
+            grid.crs,
+            "EPSG:4326",
+            always_xy=True,
+        ),
     )
 
 
@@ -190,11 +202,14 @@ def _score_candidate(
     required_distance = miles_to_meters(config.visibility.min_visibility_miles)
     distance_score = min(1.0, metrics.max_distance_m / (required_distance * 1.5))
     fov_score = min(
-        1.0, metrics.actual_fov_deg / max(config.visibility.min_field_of_view_deg, 1.0)
+        1.0,
+        metrics.actual_fov_deg / max(config.visibility.min_field_of_view_deg, 1.0),
     )
     walk_penalty = max(0.0, 1.0 - (drivability.walk_minutes / config.roads.max_walk_minutes))
-    elevation_bonus = np.tanh(candidate.elevation_m / 500.0)
-    return (distance_score * 0.4) + (fov_score * 0.3) + (walk_penalty * 0.2) + (elevation_bonus * 0.1)
+    elevation_bonus = float(np.tanh(candidate.elevation_m / 500.0))
+    return (
+        (distance_score * 0.4) + (fov_score * 0.3) + (walk_penalty * 0.2) + (elevation_bonus * 0.1)
+    )
 
 
 def _sample_elevation(grid: TerrainGrid, x: float, y: float) -> float:

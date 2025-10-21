@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional, Tuple
 
 import osmnx as ox
 import typer
 
 SEDAN_HIGHWAY_FILTER = (
-    '["highway"]["highway"!~"footway|steps|path|cycleway|bridleway|track|service"]["motor_vehicle"!~"no"]["access"!~"private"]'
+    '["highway"]["highway"!~"footway|steps|path|cycleway|bridleway|track|service"]'
+    '["motor_vehicle"!~"no"]["access"!~"private"]'
 )
 
 app = typer.Typer(help="Build a cached GeoJSON of drivable roads using OpenStreetMap data.")
@@ -27,8 +27,9 @@ def main(
         help="Output GeoJSON path for the filtered network.",
     ),
     network_type: str = typer.Option("drive", help="OSMnx network type to request."),
-    custom_filter: Optional[str] = typer.Option(
-        SEDAN_HIGHWAY_FILTER, help="Custom Overpass filter for drivable roads."
+    custom_filter: str | None = typer.Option(
+        SEDAN_HIGHWAY_FILTER,
+        help="Custom Overpass filter for drivable roads.",
     ),
 ) -> None:
     """
@@ -36,11 +37,9 @@ def main(
 
     Requires network connectivity. Bounding box values must be given in decimal degrees.
     """
+    bbox = (north, south, east, west)
     graph = ox.graph_from_bbox(
-        north=north,
-        south=south,
-        east=east,
-        west=west,
+        bbox=bbox,
         network_type=network_type,
         custom_filter=custom_filter,
     )

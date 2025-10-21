@@ -17,7 +17,7 @@ def main(
     output: Path = typer.Argument(
         Path(os.environ.get("DATA_ROOT", "data")) / "toy" / "dem_synthetic.tif",
         help="Output GeoTIFF path.",
-    )
+    ),
 ) -> None:
     grid = generate_synthetic_dem()
     save_grid_to_geotiff(grid, output)

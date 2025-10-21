@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 from affine import Affine
+from scripts.fetch_datasets import tiles_for_bbox
 from shapely.geometry import LineString
 
 from highpoint.config import load_config
 from highpoint.data.roads import RoadNetwork
 from highpoint.data.terrain import TerrainLoader, generate_synthetic_dem, save_grid_to_geotiff
 from highpoint.pipeline import run_pipeline
-from scripts.fetch_datasets import tiles_for_bbox
 
 gpd = pytest.importorskip("geopandas")
 rasterio = pytest.importorskip("rasterio")
@@ -63,7 +63,10 @@ def test_road_network_from_geojson__loads_lines(tmp_path: Path) -> None:
     assert 0.0 <= result.distance_m <= 200.0
 
 
-def test_load_config_with_file_and_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_config_with_file_and_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("DATA_ROOT", str(tmp_path))
     config_path = Path("configs/toyrun.yaml")
     config = load_config(
@@ -92,8 +95,8 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
             [
                 (grid.transform.c + 200, grid.transform.f - 200),
                 (grid.transform.c + 800, grid.transform.f - 200),
-            ]
-        )
+            ],
+        ),
     ]
     road_geojson = tmp_path / "roads.geojson"
     gdf = gpd.GeoDataFrame({}, geometry=lines, crs="EPSG:32610")
@@ -118,4 +121,7 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
     output = run_pipeline(config)
 
     assert output.results
-    assert all(result.drivability is not None for result in output.results)
+    for result in output.results:
+        assert result.drivability is not None
+        assert result.drivability.drive_minutes is not None
+        assert result.drivability.drive_distance_km is not None
