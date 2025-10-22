@@ -12,6 +12,20 @@ from pydantic import BaseModel, Field, validator
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def data_root() -> Path:
+    """
+    Return the resolved data root used for external datasets.
+
+    The location defaults to ``$DATA_ROOT/highpoint`` when ``DATA_ROOT`` is defined in
+    the environment. Otherwise the project local ``data/highpoint`` directory is used.
+    """
+    base_env = os.environ.get("DATA_ROOT")
+    base_root = Path(base_env).expanduser() if base_env else PROJECT_ROOT / "data"
+    root = (base_root / "highpoint").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 class TerrainConfig(BaseModel):
     """Settings that control terrain data acquisition and sampling."""
 
@@ -200,25 +214,18 @@ def load_config(
 
 
 def _resolve_relative_paths(config: AppConfig) -> AppConfig:
-    base_env = os.environ.get("DATA_ROOT")
-    if base_env:
-        base_root = Path(base_env).expanduser()
-    else:
-        base_root = PROJECT_ROOT / "data"
-    data_root = (base_root / "highpoint").resolve()
-    data_root.mkdir(parents=True, exist_ok=True)
-
+    root = data_root()
     updates: dict[str, Any] = {}
 
     terrain_path = config.terrain.data_path
     if terrain_path is not None:
-        terrain_resolved = _resolve_data_path(terrain_path, data_root)
+        terrain_resolved = _resolve_data_path(terrain_path, root)
         if terrain_resolved != terrain_path:
             updates["terrain"] = config.terrain.model_copy(update={"data_path": terrain_resolved})
 
     road_path = config.roads.data_path
     if road_path is not None:
-        road_resolved = _resolve_data_path(road_path, data_root)
+        road_resolved = _resolve_data_path(road_path, root)
         if road_resolved != road_path:
             updates["roads"] = config.roads.model_copy(update={"data_path": road_resolved})
 

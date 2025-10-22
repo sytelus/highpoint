@@ -10,6 +10,12 @@ import typer
 from omegaconf import DictConfig, OmegaConf
 
 from highpoint.config import load_config
+from highpoint.data.discovery import DatasetNotFoundError
+from highpoint.data.geocode import (
+    GazetteerUnavailableError,
+    TownGazetteer,
+    TownNotFoundError,
+)
 from highpoint.pipeline import run_pipeline
 from highpoint.render.map import render_map
 from highpoint.reporting.report import emit_report
@@ -28,6 +34,12 @@ def _configure_logging(level: str) -> None:
 def main(
     latitude: float | None = typer.Argument(None, help="Observer latitude in decimal degrees."),
     longitude: float | None = typer.Argument(None, help="Observer longitude in decimal degrees."),
+    location: str | None = typer.Option(
+        None,
+        "--location",
+        "-L",
+        help="Town and state (e.g. 'Issaquah, WA') resolved via the offline gazetteer.",
+    ),
     altitude: float | None = typer.Option(
         None,
         "--altitude",
@@ -116,8 +128,6 @@ def main(
 
     observer_lat = latitude if latitude is not None else get_from_file("observer.latitude")
     observer_lon = longitude if longitude is not None else get_from_file("observer.longitude")
-    if observer_lat is None or observer_lon is None:
-        raise typer.BadParameter("Latitude and longitude must be supplied via CLI or config file.")
 
     observer_alt = altitude if altitude is not None else get_from_file("observer.altitude_m", 0.0)
     azimuth_val = azimuth if azimuth is not None else get_from_file("visibility.azimuth_deg", 0.0)
@@ -130,6 +140,32 @@ def main(
         min_fov if min_fov is not None else get_from_file("visibility.min_field_of_view_deg", 30.0)
     )
     results_val = results if results is not None else get_from_file("output.results_limit", 5)
+
+    location_value = location if location is not None else get_from_file("observer.location")
+    if location_value:
+        try:
+            gazetteer = TownGazetteer()
+            town = gazetteer.resolve(location_value)
+        except GazetteerUnavailableError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        except TownNotFoundError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        logging.getLogger(__name__).info(
+            "Resolved '%s' to %.4f°, %.4f° (%.0f m)",
+            location_value,
+            town.latitude,
+            town.longitude,
+            town.elevation_m or 0.0,
+        )
+        observer_lat = town.latitude
+        observer_lon = town.longitude
+        if altitude is None and town.elevation_m is not None:
+            observer_alt = town.elevation_m
+
+    if observer_lat is None or observer_lon is None:
+        raise typer.BadParameter(
+            "Latitude and longitude must be supplied via CLI, config file, or --location",
+        )
 
     overrides_raw = {
         "terrain.search_radius_km": search_radius,
@@ -160,7 +196,11 @@ def main(
     )
 
     logging.getLogger(__name__).info("Starting HighPoint pipeline")
-    output = run_pipeline(config)
+    try:
+        output = run_pipeline(config)
+    except DatasetNotFoundError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
     emit_report(output.results, config)
 
     if config.output.render_png:

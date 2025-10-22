@@ -19,6 +19,8 @@ HighPoint requires a 3D surface model of Washington State with roughly 30 m or f
        gdalwarp USGS_1_n47w123.tif USGS_1_n48w123.tif -t_srs EPSG:32610 -r bilinear -dstnodata -9999 washington_dem.tif
 4. Store raw downloads under `$DATA_ROOT/highpoint/terrain/raw/` and cached reprojected mosaics under `$DATA_ROOT/highpoint/terrain/cache/`.
 
+HighPoint scans those directories automatically and selects the tiles intersecting the requested search radius. When a run needs tiles you have not downloaded yet, the CLI exits with a friendly explanation and suggests invoking `python scripts/fetch_datasets.py --region washington` (or `us`).
+
 ## Synthetic Fixture
 
 For unit and integration tests we rely on a synthetic GeoTIFF generated on demand via `scripts/make_synthetic_dem.py`. The utility writes `data/toy/dem_synthetic.tif` inside the repository (kept under version control), a 2 km × 2 km grid with a gradual slope and a single hill peak, enabling deterministic visibility assertions.

@@ -8,14 +8,20 @@ from pathlib import Path
 
 import numpy as np
 from pyproj import Transformer
-from rasterio import open as raster_open
 
 from highpoint.analysis.candidates import TerrainCandidate, cluster_candidates, identify_candidates
 from highpoint.analysis.drivability import DrivabilityResult, evaluate_candidate_drivability
 from highpoint.analysis.visibility import VisibilityMetrics, compute_visibility_metrics
 from highpoint.config import AppConfig
+from highpoint.data.discovery import (
+    DatasetNotFoundError,
+    compute_search_bounds,
+    discover_roads_path,
+    discover_terrain_paths,
+    load_terrain_grid,
+)
 from highpoint.data.roads import RoadNetwork
-from highpoint.data.terrain import TerrainGrid, TerrainLoader, generate_synthetic_dem
+from highpoint.data.terrain import TerrainGrid
 from highpoint.utils import (
     great_circle_distance_m,
     meters_to_miles,
@@ -125,51 +131,38 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
 
 def _load_terrain(config: AppConfig) -> tuple[TerrainGrid, tuple[float, float], Transformer]:
     terrain_cfg = config.terrain
+    observer_lat = config.observer.latitude
+    observer_lon = config.observer.longitude
+    utm_epsg = utm_epsg_for_latlon(observer_lat, observer_lon)
+    utm_crs = f"EPSG:{utm_epsg}"
+
     if terrain_cfg.data_path is None:
-        LOG.warning("No terrain path configured; using synthetic DEM fixture.")
-        grid = generate_synthetic_dem()
+        paths, bounds_latlon = discover_terrain_paths(
+            observer_lat,
+            observer_lon,
+            terrain_cfg.search_radius_km,
+            prefer_source=terrain_cfg.source,
+        )
     else:
         path = Path(terrain_cfg.data_path)
-        with raster_open(path) as dataset:
-            dataset_crs_obj = dataset.crs
-            dataset_crs = dataset_crs_obj.to_string() if dataset_crs_obj else ""
-        observer_lat = config.observer.latitude
-        observer_lon = config.observer.longitude
-        utm_epsg = utm_epsg_for_latlon(observer_lat, observer_lon)
-        utm_crs = f"EPSG:{utm_epsg}"
-        if not dataset_crs:
-            dataset_crs = utm_crs
-        to_utm = Transformer.from_crs("EPSG:4326", utm_crs, always_xy=True)
-        observer_x, observer_y = to_utm.transform(observer_lon, observer_lat)
-        radius_m = terrain_cfg.search_radius_km * 1000.0
-        bounds_utm = (
-            observer_x - radius_m,
-            observer_y - radius_m,
-            observer_x + radius_m,
-            observer_y + radius_m,
-        )
-        to_dataset = Transformer.from_crs(utm_crs, dataset_crs, always_xy=True)
-        corners = [
-            (bounds_utm[0], bounds_utm[1]),
-            (bounds_utm[0], bounds_utm[3]),
-            (bounds_utm[2], bounds_utm[1]),
-            (bounds_utm[2], bounds_utm[3]),
-        ]
-        transformed = [to_dataset.transform(x, y) for x, y in corners]
-        xs, ys = zip(*transformed, strict=False)
-        dataset_bounds = (min(xs), min(ys), max(xs), max(ys))
-        loader = TerrainLoader(path)
-        grid = loader.read(
-            bounds=dataset_bounds,
-            resolution_scale=terrain_cfg.resolution_scale,
-            target_crs=utm_crs,
-        )
-        if grid.width == 0 or grid.height == 0:
-            grid = loader.read(
-                bounds=None,
-                resolution_scale=terrain_cfg.resolution_scale,
-                target_crs=utm_crs,
+        if not path.exists():
+            raise DatasetNotFoundError(
+                "terrain",
+                f"Configured terrain file {path} does not exist. Provide a valid GeoTIFF.",
             )
+        paths = (path,)
+        bounds_latlon = compute_search_bounds(
+            observer_lat,
+            observer_lon,
+            terrain_cfg.search_radius_km,
+        )
+
+    grid = load_terrain_grid(
+        paths,
+        bounds_latlon,
+        terrain_cfg.resolution_scale,
+        utm_crs,
+    )
     observer_xy = Transformer.from_crs("EPSG:4326", grid.crs, always_xy=True).transform(
         config.observer.longitude,
         config.observer.latitude,
@@ -188,9 +181,20 @@ def _load_terrain(config: AppConfig) -> tuple[TerrainGrid, tuple[float, float], 
 def _load_roads(config: AppConfig, target_crs: str) -> RoadNetwork:
     roads_cfg = config.roads
     if roads_cfg.data_path is None:
-        LOG.warning("No roads path configured; using synthetic road network.")
-        return RoadNetwork.synthetic(target_crs)
-    return RoadNetwork.from_geojson(Path(roads_cfg.data_path), target_crs=target_crs)
+        path, _ = discover_roads_path(
+            config.observer.latitude,
+            config.observer.longitude,
+            config.terrain.search_radius_km,
+            prefer_source=roads_cfg.source,
+        )
+    else:
+        path = Path(roads_cfg.data_path)
+        if not path.exists():
+            raise DatasetNotFoundError(
+                "roads",
+                f"Configured roads file {path} does not exist. Provide a GeoJSON cache.",
+            )
+    return RoadNetwork.from_geojson(path, target_crs=target_crs)
 
 
 def _score_candidate(

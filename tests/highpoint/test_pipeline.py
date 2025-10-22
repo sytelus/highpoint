@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from highpoint.analysis.candidates import TerrainCandidate
 from highpoint.analysis.visibility import compute_visibility_metrics
 from highpoint.config import load_config
@@ -9,8 +11,8 @@ from highpoint.pipeline import run_pipeline
 
 def test_pipeline_generates_results_with_synthetic_data() -> None:
     config = load_config(
-        observer_lat=47.0,
-        observer_lon=-122.0,
+        observer_lat=46.95,
+        observer_lon=-122.99,
         observer_alt=150.0,
         azimuth=0.0,
         min_visibility_miles=1.0,
@@ -18,8 +20,10 @@ def test_pipeline_generates_results_with_synthetic_data() -> None:
         results_limit=3,
         overrides={
             "terrain.search_radius_km": 5.0,
+            "terrain.data_path": Path("data/toy/dem_synthetic.tif"),
             "roads.max_walk_minutes": 30.0,
             "roads.max_drive_minutes": None,
+            "roads.data_path": Path("data/toy/roads_synthetic.geojson"),
         },
     )
 

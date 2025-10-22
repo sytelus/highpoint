@@ -82,7 +82,9 @@ def test_load_config_with_file_and_overrides(
     )
 
     assert config.output.results_limit == 2
-    assert str(config.terrain.data_path).startswith(str(tmp_path))
+    assert config.terrain.data_path is not None
+    assert config.terrain.data_path.is_absolute()
+    assert config.terrain.data_path.exists()
 
 
 def test_pipeline_with_external_files(tmp_path: Path) -> None:
@@ -103,8 +105,8 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
     gdf.to_file(road_geojson, driver="GeoJSON")
 
     config = load_config(
-        observer_lat=47.0,
-        observer_lon=-122.0,
+        observer_lat=46.95,
+        observer_lon=-122.99,
         observer_alt=0.0,
         azimuth=0.0,
         min_visibility_miles=0.5,

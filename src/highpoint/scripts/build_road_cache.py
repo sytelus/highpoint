@@ -43,13 +43,18 @@ def main(
 
     Requires network connectivity. Bounding box values must be given in decimal degrees.
     """
-    bbox = (north, south, east, west)
+    bbox = (west, south, east, north)
     graph = ox.graph_from_bbox(
         bbox=bbox,
         network_type=network_type,
         custom_filter=custom_filter,
     )
-    _, edges = ox.graph_to_gdfs(graph, edges=True, nodes=False, fill_edge_geometry=True)
+    edges = ox.graph_to_gdfs(
+        graph,
+        edges=True,
+        nodes=False,
+        fill_edge_geometry=True,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     edges.to_file(output, driver="GeoJSON")
     typer.echo(f"Road GeoJSON written to {output}")

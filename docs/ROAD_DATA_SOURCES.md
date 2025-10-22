@@ -19,6 +19,8 @@ The HighPoint pipeline needs a drivable road network for Washington State with t
        python -m highpoint.scripts.build_road_cache --north 47.7 --south 47.4 --east -122.1 --west -122.6 --output $DATA_ROOT/highpoint/roads/cache/seattle.geojson
    The script issues an Overpass API query via OSMnx, filters for sedan-friendly `highway` values, drops segments tagged with `access=no/private` or `surface` in `{unpaved, track, dirt, gravel, grass}`, reprojects to the target UTM CRS, and writes GeoJSON for the pipeline. For large study areas you can build multiple bounding boxes and merge the GeoJSON files.
 
+HighPoint automatically discovers GeoJSON caches under `$DATA_ROOT/highpoint/roads/cache`. If a run references a bounding box without a matching cache, the CLI prints a friendly message with the exact `build_road_cache` invocation to generate it.
+
 ## Synthetic Fixture
 
 Tests use the repository copy `data/toy/roads_synthetic.geojson`, a small GeoJSON file with a grid of paved and unpaved roads. It supports deterministic unit tests for drivability checks without external downloads.

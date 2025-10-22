@@ -37,6 +37,7 @@ ipynb_checkpoints/
 # Tooling
 .idea/
 .cache/
+cache/
 
 # Dataset cache
 data/highpoint/

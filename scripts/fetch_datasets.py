@@ -169,7 +169,12 @@ def main(
         typer.echo("Toy dataset ready.")
         raise typer.Exit(code=0)
 
-    tiles = cfg.terrain_tiles or tiles_for_bbox(*cfg.bbox)  # type: ignore[arg-type]
+    if cfg.terrain_tiles is not None:
+        tiles = cfg.terrain_tiles
+    elif cfg.bbox is not None:
+        tiles = tiles_for_bbox(*cfg.bbox)
+    else:  # pragma: no cover - defensive; all real regions configure one of the two
+        raise RuntimeError(f"Region '{cfg.name}' is missing terrain coverage configuration.")
     typer.echo(f"Preparing to download {len(tiles)} SRTM tiles.")
     manifest_lines = []
     for tile in tiles:

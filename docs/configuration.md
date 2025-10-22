@@ -23,3 +23,7 @@ Configs are merged in the following order:
 3. CLI override flags (`--terrain-file`, `--roads-file`, `--render-png`, etc.), applied via OmegaConf dotted keys.
 
 Field descriptions and defaults are defined in `highpoint.config.AppConfig` and its nested models.
+
+When `observer.location` is provided (e.g. `observer.location: "Issaquah, WA"`), HighPoint resolves the town to latitude/longitude/elevation using the offline GNIS gazetteer (`scripts/fetch_gazetteer.py`). If both `observer.location` and explicit coordinates are present, the geocoded point takes precedence.
+
+If `terrain.data_path` or `roads.data_path` are omitted (the default), HighPoint infers the correct files at runtime by scanning `$DATA_ROOT/highpoint` and the repository `data/` directory. Missing assets trigger a concise error message that includes the exact `scripts/fetch_datasets.py` or `build_road_cache` command needed to populate the cache.
