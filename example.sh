@@ -1,0 +1,1 @@
+python main.py --location "Issaquah, WA" --search-radius 10 --results 5 --render-png "$OUT_DIR/issaquah.png"
