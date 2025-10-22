@@ -4,11 +4,11 @@ observer:
   altitude_m: 100.0
 
 terrain:
-  data_path: "toy/dem_synthetic.tif"
+  data_path: "data/toy/dem_synthetic.tif"
   search_radius_km: 2.0
 
 roads:
-  data_path: "toy/roads_synthetic.geojson"
+  data_path: "data/toy/roads_synthetic.geojson"
   max_walk_minutes: 30.0
   max_drive_minutes: null
 

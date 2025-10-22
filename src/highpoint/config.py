@@ -9,6 +9,8 @@ from typing import Any, cast
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, Field, validator
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 class TerrainConfig(BaseModel):
     """Settings that control terrain data acquisition and sampling."""
@@ -198,24 +200,38 @@ def load_config(
 
 
 def _resolve_relative_paths(config: AppConfig) -> AppConfig:
-    data_root = Path(os.environ.get("DATA_ROOT", "data")).expanduser()
-    if not data_root.is_absolute():
-        data_root = (Path.cwd() / data_root).resolve()
+    base_env = os.environ.get("DATA_ROOT")
+    if base_env:
+        base_root = Path(base_env).expanduser()
+    else:
+        base_root = PROJECT_ROOT / "data"
+    data_root = (base_root / "highpoint").resolve()
+    data_root.mkdir(parents=True, exist_ok=True)
 
     updates: dict[str, Any] = {}
 
     terrain_path = config.terrain.data_path
-    if terrain_path is not None and not terrain_path.is_absolute():
-        updates["terrain"] = config.terrain.model_copy(
-            update={"data_path": data_root / terrain_path},
-        )
+    if terrain_path is not None:
+        terrain_resolved = _resolve_data_path(terrain_path, data_root)
+        if terrain_resolved != terrain_path:
+            updates["terrain"] = config.terrain.model_copy(update={"data_path": terrain_resolved})
 
     road_path = config.roads.data_path
-    if road_path is not None and not road_path.is_absolute():
-        updates["roads"] = config.roads.model_copy(
-            update={"data_path": data_root / road_path},
-        )
+    if road_path is not None:
+        road_resolved = _resolve_data_path(road_path, data_root)
+        if road_resolved != road_path:
+            updates["roads"] = config.roads.model_copy(update={"data_path": road_resolved})
 
     if updates:
         return config.model_copy(update=updates)
     return config
+
+
+def _resolve_data_path(path_value: Path | str, data_root: Path) -> Path:
+    candidate = path_value if isinstance(path_value, Path) else Path(path_value)
+    if candidate.is_absolute():
+        return candidate
+    repo_candidate = (PROJECT_ROOT / candidate).resolve()
+    if repo_candidate.exists():
+        return repo_candidate
+    return (data_root / candidate).resolve()

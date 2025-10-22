@@ -18,6 +18,7 @@ SRTM_BASE = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/cu
 GEOFABRIK_BASE = "https://download.geofabrik.de"
 
 app = typer.Typer(help="Download HighPoint terrain and road datasets.")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass
@@ -57,7 +58,8 @@ REGIONS = {
 
 
 def data_root() -> Path:
-    root = Path(os.environ.get("DATA_ROOT", "data"))
+    base = Path(os.environ.get("DATA_ROOT", Path.home() / "data")).expanduser()
+    root = (base / "highpoint").resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -68,7 +70,6 @@ def ensure_directories(root: Path) -> None:
         root / "terrain" / "cache",
         root / "roads" / "raw",
         root / "roads" / "cache",
-        root / "toy",
     ]:
         path.mkdir(parents=True, exist_ok=True)
 
@@ -109,30 +110,32 @@ def download(url: str, destination: Path, dry_run: bool) -> None:
         raise RuntimeError(f"Failed to download {url}") from exc
 
 
-def create_toy_assets(root: Path, dry_run: bool) -> None:
-    dem_path = root / "toy" / "dem_synthetic.tif"
-    roads_path = root / "toy" / "roads_synthetic.geojson"
-    typer.echo("Generating synthetic DEM and road assets.")
+def create_toy_assets(dry_run: bool) -> None:
+    toy_dir = PROJECT_ROOT / "data" / "toy"
+    dem_path = toy_dir / "dem_synthetic.tif"
+    roads_path = toy_dir / "roads_synthetic.geojson"
+    typer.echo("Generating synthetic DEM and road assets in repository toy directory.")
+    toy_dir.mkdir(parents=True, exist_ok=True)
     if dem_path.exists() and roads_path.exists():
         typer.echo("Toy assets already exist; skipping regeneration.")
         return
-    if not dry_run:
-        dem = generate_synthetic_dem()
-        save_grid_to_geotiff(dem, dem_path)
-        road_network = RoadNetwork.synthetic()
-        features = []
-        for line in road_network.geometries:
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": json.loads(json.dumps(line.__geo_interface__)),
-                    "properties": {"source": "synthetic"},
-                },
-            )
-        geojson = {"type": "FeatureCollection", "features": features}
-        roads_path.write_text(json.dumps(geojson, indent=2), encoding="utf-8")
-    else:
+    if dry_run:
         typer.echo("DRY RUN: skipping synthetic asset creation.")
+        return
+    dem = generate_synthetic_dem()
+    save_grid_to_geotiff(dem, dem_path)
+    road_network = RoadNetwork.synthetic()
+    features = []
+    for line in road_network.geometries:
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": json.loads(json.dumps(line.__geo_interface__)),
+                "properties": {"source": "synthetic"},
+            },
+        )
+    geojson = {"type": "FeatureCollection", "features": features}
+    roads_path.write_text(json.dumps(geojson, indent=2), encoding="utf-8")
 
 
 @app.command()
@@ -162,7 +165,7 @@ def main(
     typer.echo(f"Preparing datasets for region '{cfg.name}': {cfg.description}")
 
     if cfg.name == "toy":
-        create_toy_assets(root=root, dry_run=dry_run)
+        create_toy_assets(dry_run=dry_run)
         typer.echo("Toy dataset ready.")
         raise typer.Exit(code=0)
 

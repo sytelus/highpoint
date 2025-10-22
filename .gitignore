@@ -39,7 +39,4 @@ ipynb_checkpoints/
 .cache/
 
 # Dataset cache
-data/terrain/raw/
-data/terrain/cache/
-data/roads/raw/
-data/roads/cache/
+data/highpoint/

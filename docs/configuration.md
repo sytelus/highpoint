@@ -6,14 +6,14 @@ HighPoint reads configuration from OmegaConf-compatible YAML files and a small s
 
 | Variable   | Default                  | Description |
 |------------|--------------------------|-------------|
-| `DATA_ROOT` | `./data` (resolved relative to the current working directory) | Root folder containing terrain, road, and toy datasets. The loader expands the path, creates missing directories, and resolves relative entries in YAML configs under this root. Point this to a fast local disk when working with full-resolution DEM tiles. |
+| `DATA_ROOT` | `./data` (resolved relative to the current working directory) | Base directory that HighPoint expands to `$DATA_ROOT/highpoint` for terrain and road downloads. The loader creates missing directories automatically and resolves relative entries in YAML configs under this root. Point this to a fast local disk when working with full-resolution DEM tiles. |
 | `OUT_DIR`  | `./out/<project-name>` if unset, create manually per README | Directory where CLI runs should persist reports, CSV/GeoJSON exports, and rendered PNGs. When running inside VS Code, the `ToyRun` debug configuration writes into this directory. |
 
 All file-based configuration in `configs/*.yaml` may refer to paths relative to `DATA_ROOT`.
 
 ## YAML Configuration
 
-* `configs/toyrun.yaml` – minimal offline configuration for demos and automated checks. Uses synthetic DEM/road fixtures under `$DATA_ROOT/toy/`.
+* `configs/toyrun.yaml` – minimal offline configuration for demos and automated checks. Uses the checked-in synthetic fixtures under `data/toy/`.
 * `configs/datasets.yaml` – catalog of terrain and road dataset sources, including mirrors, cache folders, and descriptions.
 
 Configs are merged in the following order:

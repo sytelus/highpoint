@@ -13,6 +13,12 @@ SEDAN_HIGHWAY_FILTER = (
     '["motor_vehicle"!~"no"]["access"!~"private"]'
 )
 
+
+def _default_output() -> Path:
+    base = Path(os.environ.get("DATA_ROOT", Path.home() / "data")).expanduser()
+    return (base / "highpoint" / "roads" / "cache" / "roads.geojson").resolve()
+
+
 app = typer.Typer(help="Build a cached GeoJSON of drivable roads using OpenStreetMap data.")
 
 
@@ -23,7 +29,7 @@ def main(
     east: float = typer.Option(..., help="Eastern longitude of bounding box."),
     west: float = typer.Option(..., help="Western longitude of bounding box."),
     output: Path = typer.Option(
-        Path(os.environ.get("DATA_ROOT", "data")) / "roads" / "cache" / "roads.geojson",
+        _default_output(),
         help="Output GeoJSON path for the filtered network.",
     ),
     network_type: str = typer.Option("drive", help="OSMnx network type to request."),
