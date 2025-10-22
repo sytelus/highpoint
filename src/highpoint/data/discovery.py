@@ -10,7 +10,6 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from geopandas import read_file as gpd_read_file
 from pyproj import Geod, Transformer
 from rasterio.crs import CRS
 from rasterio.merge import merge as raster_merge
@@ -25,7 +24,7 @@ from rasterio.warp import (
 )
 
 from highpoint.config import PROJECT_ROOT, data_root
-from highpoint.data.roads import _looks_projected
+from highpoint.data.roads import _looks_projected, _read_geo_dataframe
 from highpoint.data.terrain import TerrainGrid
 from highpoint.utils import utm_epsg_for_latlon
 
@@ -361,9 +360,9 @@ def _raster_bounds_latlon(path: Path) -> tuple[float, float, float, float]:
 
 
 def _vector_bounds_latlon(path: Path, approx_epsg: int) -> tuple[float, float, float, float]:
-    gdf = gpd_read_file(path, rows=0)
+    gdf = _read_geo_dataframe(path, rows=0)
     if gdf.empty:
-        gdf = gpd_read_file(path)
+        gdf = _read_geo_dataframe(path)
     if gdf.empty:
         raise ValueError(f"Vector dataset at {path} contains no geometries.")
     src_crs = gdf.crs

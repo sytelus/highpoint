@@ -78,6 +78,7 @@ After tweaking configuration, the report panels call out the key computed metric
 - `docs/GEOCODING.md` – offline GNIS geocoding workflow for `--location`.
 - `docs/configuration.md` – full reference for environment variables, YAML fields, and CLI overrides.
 - `docs/SCORING.md` – scoring formula, component weights, and customisation tips.
+- `docs/OBSTRUCTION_MODEL.md` – how the synthetic tree belt works and how to tune the obstruction settings.
 
 ### Continental US (large download, be patient)
 

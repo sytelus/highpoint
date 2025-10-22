@@ -80,6 +80,13 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
 
     for candidate in clustered:
         metrics = compute_visibility_metrics(terrain_grid, candidate, config)
+        if not metrics.has_clear_drop:
+            LOG.debug(
+                "Candidate at (%.3f, %.3f) rejected: terrain never clears obstruction belt",
+                candidate.x,
+                candidate.y,
+            )
+            continue
         drivability = evaluate_candidate_drivability(
             candidate_xy=(candidate.x, candidate.y),
             observer_xy=observer_xy,

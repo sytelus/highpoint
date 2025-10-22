@@ -24,6 +24,8 @@ def test_pipeline_generates_results_with_synthetic_data() -> None:
             "roads.max_walk_minutes": 30.0,
             "roads.max_drive_minutes": None,
             "roads.data_path": Path("data/toy/roads_synthetic.geojson"),
+            "visibility.obstruction_start_m": 5.0,
+            "visibility.obstruction_height_m": 1.8,
         },
     )
 
@@ -58,7 +60,11 @@ def test_visibility_metrics_cover_sector() -> None:
         min_visibility_miles=0.5,
         min_fov_deg=45.0,
         results_limit=1,
-        overrides={"terrain.search_radius_km": 5.0},
+        overrides={
+            "terrain.search_radius_km": 5.0,
+            "visibility.obstruction_start_m": 5.0,
+            "visibility.obstruction_height_m": 1.8,
+        },
     )
 
     metrics = compute_visibility_metrics(grid, candidate, config)

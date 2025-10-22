@@ -60,8 +60,8 @@ Configuration sources are merged in the following order:
 | Key | Type | Default | CLI override | Description |
 |-----|------|---------|--------------|-------------|
 | `observer_eye_height_m` | float | `1.8` | `--visibility.observer_eye_height_m=<value>` | Height of the observer above ground. |
-| `obstruction_start_m` | float | `10.0` | `--visibility.obstruction_start_m=<value>` | Distance before obstacles start blocking the view. |
-| `obstruction_height_m` | float | `15.0` | `--visibility.obstruction_height_m=<value>` | Extra height added to obstacles when beyond `obstruction_start_m`. |
+| `obstruction_start_m` | float | `10.0` | `--visibility.obstruction_start_m=<value>` | Radius of the clear “moat” around the viewpoint; synthetic trees begin just outside this distance. |
+| `obstruction_height_m` | float | `15.0` | `--visibility.obstruction_height_m=<value>` | Height of the synthetic tree canopy beyond the moat. Rays must drop by at least `(obstruction_height_m - observer_eye_height_m)` within the moat to clear it (see `docs/OBSTRUCTION_MODEL.md`). |
 | `min_visibility_miles` | float | `3.0` | `--min-visibility/-k` | Required unobstructed viewing distance. |
 | `min_field_of_view_deg` | float | `30.0` | `--min-fov/-g` | Desired continuous field-of-view around the target azimuth. |
 | `azimuth_deg` | float | `0.0` | `--azimuth/-d` | Centreline direction of interest (0 = North). |

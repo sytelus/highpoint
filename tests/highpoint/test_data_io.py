@@ -117,6 +117,8 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
             "roads.data_path": str(road_geojson),
             "terrain.search_radius_km": 3.0,
             "roads.max_walk_minutes": 20.0,
+            "visibility.obstruction_start_m": 5.0,
+            "visibility.obstruction_height_m": 1.8,
         },
     )
 

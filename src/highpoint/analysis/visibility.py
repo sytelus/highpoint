@@ -23,6 +23,14 @@ class VisibilityMetrics:
     median_distance_m: float
     actual_fov_deg: float
     ray_results: dict[float, float]
+    rays_with_clearance: int
+    total_rays: int
+
+    @property
+    def has_clear_drop(self) -> bool:
+        """Return True when at least one ray clears the obstruction belt."""
+
+        return self.rays_with_clearance > 0
 
 
 def compute_visibility_metrics(
@@ -44,6 +52,7 @@ def compute_visibility_metrics(
     max_distance_m = 0.0
     distances_for_sector: list[float] = []
     distances_meeting_requirement: list[float] = []
+    rays_with_clearance = 0
 
     sector_start, sector_end = azimuth_range(
         visibility_cfg.azimuth_deg,
@@ -52,7 +61,7 @@ def compute_visibility_metrics(
     min_required_distance = miles_to_meters(visibility_cfg.min_visibility_miles)
 
     for angle in angles:
-        distance = _trace_ray(
+        distance, clearance_met = _trace_ray(
             grid=grid,
             candidate=candidate,
             viewer_height=viewer_height,
@@ -64,6 +73,8 @@ def compute_visibility_metrics(
         )
         ray_results[angle] = distance
         max_distance_m = max(max_distance_m, distance)
+        if clearance_met:
+            rays_with_clearance += 1
         if _angle_in_sector(angle, sector_start, sector_end):
             distances_for_sector.append(distance)
             if distance >= min_required_distance:
@@ -82,6 +93,8 @@ def compute_visibility_metrics(
         median_distance_m=median_distance_m,
         actual_fov_deg=actual_fov_deg,
         ray_results=ray_results,
+        rays_with_clearance=rays_with_clearance,
+        total_rays=len(angles),
     )
 
 
@@ -94,13 +107,18 @@ def _trace_ray(
     max_steps: int,
     obstruction_start: float,
     obstruction_height: float,
-) -> float:
-    """Return the visible distance in meters for a single ray direction."""
+) -> tuple[float, bool]:
+    """Return the visible distance and whether clearance was achieved for one ray."""
+
     unit_dx, unit_dy = unit_vector(angle_deg)
     inv_transform = ~grid.transform
 
     visible_distance = 0.0
     max_slope = -math.inf
+
+    eye_height = viewer_height - candidate.elevation_m
+    drop_required = max(0.0, obstruction_height - eye_height)
+    clearance_met = drop_required == 0.0
 
     for step in range(1, max_steps + 1):
         distance = step * cell_size
@@ -109,17 +127,32 @@ def _trace_ray(
         col, row = inv_transform * (x, y)
         if row < 0 or row >= grid.height or col < 0 or col >= grid.width:
             break
-        sample = float(map_coordinates(grid.elevations, [[row], [col]], order=1, mode="nearest")[0])
+
+        sample = float(
+            map_coordinates(grid.elevations, [[row], [col]], order=1, mode="nearest")[0],
+        )
         if np.isnan(sample):
             continue
+
+        if distance <= obstruction_start and not clearance_met:
+            drop = candidate.elevation_m - sample
+            if drop >= drop_required:
+                clearance_met = True
+
         obstacle_height = sample
-        if distance >= obstruction_start:
+        if distance > obstruction_start:
+            if not clearance_met:
+                return obstruction_start, False
             obstacle_height += obstruction_height
+
         slope = (obstacle_height - viewer_height) / distance
         if slope > max_slope:
             max_slope = slope
             visible_distance = distance
-    return visible_distance
+
+    if not clearance_met:
+        return min(visible_distance, obstruction_start), False
+    return visible_distance, True
 
 
 def _angle_in_sector(angle: float, start: float, end: float) -> bool:

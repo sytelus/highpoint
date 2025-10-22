@@ -11,6 +11,21 @@ import numpy as np
 from shapely.geometry import LineString, MultiLineString
 
 
+def _read_geo_dataframe(path: Path, **kwargs: object) -> gpd.GeoDataFrame:
+    """Load a GeoDataFrame ensuring Arrow-backed IO when supported."""
+
+    try:
+        return gpd.read_file(path, use_arrow=True, **kwargs)
+    except TypeError:
+        # Older GeoPandas/Pyogrio releases may not recognise the flag.
+        return gpd.read_file(path, **kwargs)
+    except ValueError as exc:
+        # Some builds raise when Arrow support is unavailable despite the flag.
+        if "use_arrow" in str(exc).lower():
+            return gpd.read_file(path, **kwargs)
+        raise
+
+
 @dataclass
 class RoadAccessPoint:
     """Details about the nearest drivable location relative to a terrain candidate."""
@@ -41,7 +56,7 @@ class RoadNetwork:
     @classmethod
     def from_geojson(cls, path: Path, target_crs: str) -> RoadNetwork:
         """Load road geometries from GeoJSON and reproject to target CRS."""
-        gdf = gpd.read_file(path)
+        gdf = _read_geo_dataframe(path)
         if gdf.empty:
             raise ValueError(f"GeoJSON at {path} contains no features.")
         inferred_projected = _looks_projected(gdf)
