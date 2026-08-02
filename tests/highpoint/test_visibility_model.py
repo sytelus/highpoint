@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
 from affine import Affine
 
 from highpoint.analysis.candidates import TerrainCandidate
-from highpoint.analysis.visibility import compute_visibility_metrics
 from highpoint.analysis.drivability import DrivabilityResult
+from highpoint.analysis.visibility import VisibilityMetrics, compute_visibility_metrics
 from highpoint.config import AppConfig
 from highpoint.data.roads import RoadAccessPoint, RoadNetwork
 from highpoint.data.terrain import TerrainGrid
@@ -49,13 +50,16 @@ def _make_grid(
 
 @pytest.fixture
 def base_config() -> AppConfig:
-    return AppConfig(
-        observer={"latitude": 0.0, "longitude": 0.0, "altitude_m": 0.0},
-        terrain={"max_visibility_km": 2.0},
-        visibility={
-            "obstruction_start_m": 30.0,
-            "obstruction_height_m": 45.0,
-            "rays_full_circle": 8,
+    return AppConfig.model_validate(
+        {
+            "observer": {"latitude": 0.0, "longitude": 0.0, "altitude_m": 0.0},
+            "terrain": {"max_visibility_km": 2.0},
+            "visibility": {
+                "obstruction_start_m": 30.0,
+                "obstruction_height_m": 45.0,
+                "min_field_of_view_deg": 45.0,
+                "rays_full_circle": 8,
+            },
         },
     )
 
@@ -87,11 +91,17 @@ def test_pipeline_discards_candidate_without_clearance(
         drive_distance_km=5.0,
     )
 
-    monkeypatch.setattr("highpoint.pipeline._load_terrain", lambda cfg: (grid, (0.0, 0.0), _IdentityTransformer()))
+    monkeypatch.setattr(
+        "highpoint.pipeline._load_terrain",
+        lambda cfg: (grid, (0.0, 0.0), _IdentityTransformer()),
+    )
     monkeypatch.setattr("highpoint.pipeline._load_roads", lambda cfg, target_crs: road_network)
     monkeypatch.setattr("highpoint.pipeline.identify_candidates", lambda g: [candidate])
     monkeypatch.setattr("highpoint.pipeline.cluster_candidates", lambda cands, _: list(cands))
-    monkeypatch.setattr("highpoint.pipeline.evaluate_candidate_drivability", lambda **_: drivability)
+    monkeypatch.setattr(
+        "highpoint.pipeline.evaluate_candidate_drivability",
+        lambda **_: drivability,
+    )
 
     output: PipelineOutput = run_pipeline(base_config)
 
@@ -105,3 +115,67 @@ def test_visibility_drop_met__extends_view_distance(base_config: AppConfig) -> N
 
     assert metrics.rays_with_clearance > 0
     assert metrics.max_distance_m > base_config.visibility.obstruction_start_m
+
+
+def test_field_of_view__requires_contiguous_clear_rays(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grid, candidate = _make_grid()
+    config = AppConfig.model_validate(
+        {
+            "observer": {"latitude": 0.0, "longitude": 0.0},
+            "terrain": {"max_visibility_km": 2.0},
+            "visibility": {
+                "obstruction_height_m": 0.0,
+                "min_visibility_miles": 1.0,
+                "min_field_of_view_deg": 45.0,
+                "azimuth_deg": 0.0,
+                "azimuth_tolerance_deg": 45.0,
+                "rays_full_circle": 8,
+            },
+        },
+    )
+
+    def fake_trace_ray(**kwargs: Any) -> tuple[float, bool]:
+        angle = float(kwargs["angle_deg"])
+        return (2_000.0, True) if angle in {45.0, 315.0} else (100.0, True)
+
+    monkeypatch.setattr("highpoint.analysis.visibility._trace_ray", fake_trace_ray)
+
+    metrics = compute_visibility_metrics(grid, candidate, config)
+
+    assert metrics.actual_fov_deg == 45.0
+    assert metrics.max_distance_m == 2_000.0
+
+
+def test_pipeline_rejects_candidate_below_fov_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+    base_config: AppConfig,
+) -> None:
+    grid, candidate = _make_grid()
+    road_network = RoadNetwork.synthetic(target_crs=grid.crs)
+    insufficient = VisibilityMetrics(
+        max_distance_m=2_000.0,
+        mean_distance_m=1_000.0,
+        median_distance_m=1_000.0,
+        actual_fov_deg=0.0,
+        ray_results={0.0: 2_000.0},
+        rays_with_clearance=1,
+        total_rays=1,
+    )
+
+    monkeypatch.setattr(
+        "highpoint.pipeline._load_terrain",
+        lambda cfg: (grid, (0.0, 0.0), _IdentityTransformer()),
+    )
+    monkeypatch.setattr("highpoint.pipeline._load_roads", lambda cfg, target_crs: road_network)
+    monkeypatch.setattr("highpoint.pipeline.identify_candidates", lambda _: [candidate])
+    monkeypatch.setattr("highpoint.pipeline.cluster_candidates", lambda items, _: list(items))
+    monkeypatch.setattr("highpoint.pipeline.compute_visibility_metrics", lambda *_: insufficient)
+
+    def fail_if_called(**_: Any) -> None:
+        raise AssertionError("drivability should not run for a rejected candidate")
+
+    monkeypatch.setattr("highpoint.pipeline.evaluate_candidate_drivability", fail_if_called)
+
+    assert run_pipeline(base_config).results == []

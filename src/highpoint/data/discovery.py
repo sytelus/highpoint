@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
-from pyproj import Geod, Transformer
+from pyproj import Geod
 from rasterio.crs import CRS
 from rasterio.merge import merge as raster_merge
 from rasterio.transform import Affine, array_bounds
@@ -120,6 +120,10 @@ def load_terrain_grid(
     If the requested bounds produce no pixels, the full extent of the rasters is used
     before signalling insufficient coverage.
     """
+    if not paths:
+        raise DatasetNotFoundError("terrain", "At least one DEM path is required.")
+    if resolution_scale <= 0.0:
+        raise ValueError("resolution_scale must be positive")
     datasets = [rasterio.open(path) for path in paths]
     try:
         source_crs = datasets[0].crs
@@ -139,13 +143,18 @@ def load_terrain_grid(
             densify_pts=21,
         )
         try:
-            merged, transform = raster_merge(datasets, bounds=bounds_source)
+            merged, transform = raster_merge(
+                datasets,
+                bounds=bounds_source,
+                nodata=np.nan,
+                dtype=np.float32,
+            )
         except ValueError:
             LOG.debug(
                 "Bounds %s produced empty mosaic; falling back to full extent.",
                 bounds_latlon,
             )
-            merged, transform = raster_merge(datasets)
+            merged, transform = raster_merge(datasets, nodata=np.nan, dtype=np.float32)
     finally:
         for dataset in datasets:
             dataset.close()
@@ -163,7 +172,7 @@ def load_terrain_grid(
             array.shape[0],
             *bounds_proj,
         )
-        destination = np.empty((dest_height, dest_width), dtype=np.float32)
+        destination = np.full((dest_height, dest_width), np.nan, dtype=np.float32)
         reproject(
             source=array,
             destination=destination,
@@ -171,6 +180,7 @@ def load_terrain_grid(
             src_crs=current_crs,
             dst_transform=dest_transform,
             dst_crs=target_crs,
+            src_nodata=np.nan,
             resampling=WarpResampling.bilinear,
             dst_nodata=np.nan,
             num_threads=1,
@@ -183,20 +193,25 @@ def load_terrain_grid(
         scale = 1.0 / resolution_scale
         out_height = max(1, int(round(array.shape[0] * scale)))
         out_width = max(1, int(round(array.shape[1] * scale)))
-        destination = np.empty((out_height, out_width), dtype=np.float32)
+        destination = np.full((out_height, out_width), np.nan, dtype=np.float32)
+        scaled_transform = out_transform * Affine.scale(
+            array.shape[1] / out_width,
+            array.shape[0] / out_height,
+        )
         reproject(
             source=array,
             destination=destination,
             src_transform=out_transform,
             src_crs=current_crs,
-            dst_transform=out_transform * Affine.scale(resolution_scale),
+            dst_transform=scaled_transform,
             dst_crs=current_crs,
+            src_nodata=np.nan,
             resampling=WarpResampling.average,
             dst_nodata=np.nan,
             num_threads=1,
         )
         array = destination
-        out_transform = out_transform * Affine.scale(resolution_scale)
+        out_transform = scaled_transform
 
     crs_value = (
         current_crs
@@ -205,6 +220,8 @@ def load_terrain_grid(
     )
     grid = TerrainGrid(elevations=array, transform=out_transform, crs=crs_value)
 
+    if not np.isfinite(grid.elevations).any():
+        raise DatasetNotFoundError("terrain", "DEM coverage contains no valid elevation samples.")
     _validate_grid_coverage(grid, bounds_latlon)
     return grid
 
@@ -257,8 +274,20 @@ def discover_roads_path(
 
 
 def _validate_grid_coverage(grid: TerrainGrid, bounds_latlon: SearchBounds) -> None:
-    grid_bounds = _grid_bounds_latlon(grid)
-    if not _bounds_contains(grid_bounds, bounds_latlon, tolerance=1e-3):
+    valid_rows, valid_cols = np.where(np.isfinite(grid.elevations))
+    if valid_rows.size == 0:  # pragma: no cover - checked before this function
+        raise DatasetNotFoundError("terrain", "DEM coverage contains no valid elevation samples.")
+    row_start = int(valid_rows.min())
+    row_stop = int(valid_rows.max()) + 1
+    col_start = int(valid_cols.min())
+    col_stop = int(valid_cols.max()) + 1
+    valid_grid = TerrainGrid(
+        elevations=grid.elevations[row_start:row_stop, col_start:col_stop],
+        transform=grid.transform * Affine.translation(col_start, row_start),
+        crs=grid.crs,
+    )
+    valid_bounds = _grid_bounds_latlon(valid_grid)
+    if not _bounds_contains(valid_bounds, bounds_latlon, tolerance=1e-3):
         raise DatasetNotFoundError(
             "terrain",
             (
@@ -399,22 +428,6 @@ def _vector_bounds_latlon(path: Path, approx_epsg: int) -> tuple[float, float, f
         bounds_latlon[2],
     )
     return (lat_min, lat_max, lon_min, lon_max)
-
-
-def _project_bounds(
-    bounds_latlon: SearchBounds,
-    target_crs: str,
-) -> tuple[float, float, float, float]:
-    lat_min, lat_max, lon_min, lon_max = bounds_latlon
-    transformer = Transformer.from_crs("EPSG:4326", target_crs, always_xy=True)
-    corners = [
-        transformer.transform(lon_min, lat_min),
-        transformer.transform(lon_min, lat_max),
-        transformer.transform(lon_max, lat_min),
-        transformer.transform(lon_max, lat_max),
-    ]
-    xs, ys = zip(*corners, strict=False)
-    return (min(xs), min(ys), max(xs), max(ys))
 
 
 def _grid_bounds_latlon(grid: TerrainGrid) -> tuple[float, float, float, float]:

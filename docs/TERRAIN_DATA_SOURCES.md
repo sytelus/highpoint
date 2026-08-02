@@ -1,33 +1,56 @@
 # Terrain Data Sources
 
-## Summary
+## Decision
 
-HighPoint requires a 3D surface model of Washington State with roughly 30 m or finer resolution. The NASA Shuttle Radar Topography Mission (SRTM) 1 Arc-Second DEM is the best balance between coverage, licensing, and availability. It covers all of the United States at 1 arc-second (~30 m) resolution, stores heights in meters, and is freely redistributable for non-commercial use. Several mirrors exist; we recommend the USGS 3DEP download interface for canonical access and the AWS Public Dataset mirror for automation.
+HighPoint defaults to USGS-hosted SRTM 1 Arc-Second GeoTIFFs. Their approximately 30 m spacing is
+a practical balance for regional screening and has consistent U.S. coverage. USGS 3DEP 1/3
+Arc-Second data is a higher-resolution alternative but requires substantially more storage and
+processing. Copernicus and local lidar products can also work when converted to georeferenced
+GeoTIFFs with elevation units compatible with the model.
 
-## Candidates Considered
+The source catalog in `configs/datasets.yaml` records these choices for maintainers. It is not a
+lockfile and is not read by the analysis configuration loader.
 
-* **USGS 3DEP 1/3 Arc-Second DEM**: 10 m resolution GeoTIFFs with superb quality, but the volume is large (hundreds of GB for Washington) and requires stitching many tiles. Useful for premium accuracy, but heavy for initial prototypes.
-* **NASA SRTM 1 Arc-Second (Chosen)**: 30 m resolution, consistent coverage, and the AWS mirror offers anonymous HTTPS downloads and Cloud-Optimized GeoTIFFs. Works well with rasterio and GDAL without preprocessing.
-* **Copernicus EU-DEM**: 25 m resolution, but coverage outside Europe is limited. Discarded because our MVP focuses on Washington State.
-* **Mapzen Terrain (retired)**: Historic dataset derived from SRTM with 90 m resolution; superseded by better options.
+## Download
 
-## Acquisition Instructions
+For the bundled regional definitions:
 
-1. Install GDAL 3.4+ and rasterio (`pip install rasterio`).
-2. Visit `https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/TIFF/current/` and identify the tiles covering Washington (filenames start with `USGS_1_nXXwYYY`). Download needed tiles with `curl -O`.
-3. Optionally clip or mosaic using GDAL:
-       gdalwarp USGS_1_n47w123.tif USGS_1_n48w123.tif -t_srs EPSG:32610 -r bilinear -dstnodata -9999 washington_dem.tif
-4. Store raw downloads under `$DATA_ROOT/highpoint/terrain/raw/` and cached reprojected mosaics under `$DATA_ROOT/highpoint/terrain/cache/`.
+```bash
+python scripts/fetch_datasets.py --region washington
+# or preview without creating directories or files
+python scripts/fetch_datasets.py --region washington --dry-run
+```
 
-HighPoint scans those directories automatically and selects the tiles intersecting the requested search radius. When a run needs tiles you have not downloaded yet, the CLI exits with a friendly explanation and suggests invoking `python scripts/fetch_datasets.py --region washington` (or `us`).
+Terrain tiles are written atomically under `$DATA_ROOT/highpoint/terrain/raw`; a failed transfer
+does not leave a partial file that a later run mistakes for a completed download. A filename
+manifest is written after a successful non-dry run.
+
+The configured official directory is the [USGS National Map staged elevation products](https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/TIFF/current/).
+For a smaller request, download only the tiles intersecting the intended search radius.
+
+## Loading and Coverage
+
+HighPoint scans repository toy data plus `$DATA_ROOT/highpoint/terrain/raw` and `terrain/cache` for
+`.tif` and `.tiff` files that intersect the requested latitude/longitude window. It merges selected
+tiles, converts declared nodata to `NaN`, reprojects to local UTM, and optionally resamples.
+
+Selected tiles must use compatible source CRS/resolution metadata. The loader verifies that the
+bounding extent of valid pixels—not padded nodata—covers the requested window. It does not yet
+detect every internal hole in a mosaic or persist the derived reprojection as a reusable cache.
+
+Elevation values are interpreted as meters. Earth curvature, atmospheric refraction, vegetation,
+and structures are not part of the DEM ray trace; see [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Synthetic Fixture
 
-For unit and integration tests we rely on a synthetic GeoTIFF generated on demand via `scripts/make_synthetic_dem.py`. The utility writes `data/toy/dem_synthetic.tif` inside the repository (kept under version control), a 2 km × 2 km grid with a gradual slope and a single hill peak, enabling deterministic visibility assertions.
+`data/toy/dem_synthetic.tif` is a deterministic 160×160 raster at 30 m spacing (4.8 km square).
+It contains a gentle regional slope and a compact rocky summit with a long-distance horizon. The
+source is `generate_synthetic_dem` in `src/highpoint/data/terrain.py`; regenerate the tracked file
+with:
 
-## Data Handling Notes
+```bash
+python scripts/make_synthetic_dem.py data/toy/dem_synthetic.tif
+```
 
-* Elevations use meters relative to mean sea level; treat `-32768` as the no-data sentinel.
-* Reproject tiles into the local UTM zone (EPSG:32610 for western Washington, EPSG:32611 for eastern). Store both the original and reprojected CRS metadata, as line-of-sight math requires meter units.
-* Cache downloads and derived rasters with deterministic filenames keyed by tile extent and resolution so repeated runs avoid network access.
-* Document every dataset version in `configs/datasets.yaml` to ensure reproducible runs.
+Do not edit the binary artifact directly. Update the generator, rebuild it, and run the toy
+pipeline and tests together.

@@ -1,5 +1,11 @@
-- Add automated mosaicking/reprojection helpers so Washington- and US-wide DEM downloads produce ready-to-use GeoTIFF caches.
-- Integrate NLCD or building-footprint obstruction models to replace synthetic height assumptions.
-- Persist road/terrain caches between runs and surface cache invalidation commands.
-- Expand integration tests to exercise the CLI against clipped real datasets once fixtures are curated.
-- Implement optional routing against OSRM/GraphHopper for accurate driving times.
+# Remaining Work
+
+- Ingest local Geofabrik PBF extracts directly so regional road preparation does not require a
+  separate Overpass query.
+- Add measured vegetation/building obstruction layers and keep the synthetic belt as an explicit
+  fallback.
+- Integrate an optional offline/remote router for connected drive and walk distances.
+- Add spatial indexing and a reproducible benchmark suite before publishing runtime targets.
+- Detect internal DEM coverage holes and persist deterministic reprojected/mosaicked caches.
+- Curate small legally redistributable real-data fixtures for CLI integration tests.
+- Add magnetic-declination and Earth-curvature/refraction options for long-distance bearings.

@@ -1,36 +1,54 @@
-# HighPoint Project
+# HighPoint Project Goals
 
-This file describes the goal of the project and suggested approach to design and implement this project.
+## Purpose
 
-## Project Goal
+HighPoint helps a user find nearby scenic viewpoints for a normal passenger car. Given a starting
+location, a viewing direction, a minimum visible distance, and a minimum field of view, it should
+return a small ranked set of terrain points that meet those visibility goals and are within a
+configurable walk of a drivable road.
 
-The goal of the project is to allow user to input altitude, lattitude and logitude on earth and print out nearest N points on Earth that are drivable and from where at least K miles of terrain is visible without obstructions with at least G degrees of angle of view in D direction. For example, running the script with arguments of altitude A1, lattitude L1 and longitude M1, the program may output nearest 10 drivable points  from where one can view unobstrcted 4 miles of terrain with at least 30 degree field of view looking in North. The main goal of such program is to find nearest viewspots where user can drive for a scenic view, sunrise or sunset views, for example. It is not neccesory that user must be able to drive from the exactly specified lat long to the exactly given output point but rather that both points are within M minutes of walkable distance, where M usually will be 15). We will assume that we need to implement this project for the state of Washington in US for starter but we would like to expand this in future.
+Washington State is the initial supported region. The design should remain usable elsewhere when
+equivalent terrain, road, and gazetteer data are supplied.
 
-## Suggested Approach
+## Functional Goals
 
-Use reasonable defaults when not specifiedin this document. Use units and coordinate systems that you think are appropriate and easy to use.
+1. Accept latitude, longitude, optional starting altitude, viewing azimuth, minimum visibility,
+   minimum field of view, and result count through a Python API, YAML configuration, and CLI.
+2. Discover or load free DEM data, reproject it to a local meter-based CRS, and generate a small
+   set of representative terrain candidates efficiently.
+3. Trace terrain visibility around each candidate. A qualifying result must provide the requested
+   contiguous field of view within the configured tolerance around the desired direction.
+4. Approximate nearby obstructions when measured vegetation and building heights are unavailable.
+   Observer eye height, clear radius, and synthetic obstruction height must be configurable.
+5. Use current OpenStreetMap-derived road geometry to find the nearest plausible access point and
+   enforce a configurable walking limit. Offline drive distance and time may be estimates until a
+   routing engine is integrated.
+6. Report candidate and access coordinates, elevations, mean/median/maximum visibility, field of
+   view, straight-line distance, estimated drive and walk times, and ranking score. CSV, GeoJSON,
+   and a compact terrain PNG should be available.
+7. Provide a fast, deterministic, offline toy run that demonstrates the complete workflow on a
+   laptop and can be launched from VS Code.
 
-For datasets, use free to download datasets. You can note the licenses for them but they are not important as long as they are free to download. You can assume that download process is manual but you should include detailed step-by-step instructions.
+## Engineering Goals
 
-To implement this project, we need terrain data. You should throughly research various open source terrain data that can be downloaded for free, compare their completeness and richness and ease of aquiring them and chose one that you think is easiest to work with. You can document your research and decision in TERRAIN_DATA_SOURCES.md file in project root so you can refer it back any time. Our goal is to utilize easy to download and use datasets for this project. You should then generate download code and instruction and write a module to use this data efficiently. This code may already be avaialble and it might be good idea to reuse it and follow any best practices. You might be able to download a small portion of data just to validate the code and write unit test and create a toy run configuration. If such small data is not available, you might be able to create a create to generate a synthetic data to just experiment.
+- Keep the importable implementation under `src/highpoint/`, end-user entry points small, and
+  dataset preparation code under `scripts/` or `highpoint.scripts` as appropriate.
+- Keep large downloaded and generated datasets outside Git under `$DATA_ROOT/highpoint` and place
+  relative outputs under `$OUT_DIR/highpoint`.
+- Prefer readable typed code and deterministic algorithms over premature optimization. Validate
+  performance claims with benchmarks before publishing them.
+- Reject invalid or misspelled configuration instead of silently falling back.
+- Cover geospatial transforms, visibility boundaries, data discovery, CLI behavior, exports, and
+  the toy pipeline with inexpensive regression tests.
+- Keep implementation, defaults, README examples, detailed documentation, and limitations in
+  agreement.
 
-Once you have terrain data, you will need to figure out an efficient algorithm that computes visibility distances from various terrain points around the user specified lat long. There may be a ton of points which may take a of time for such computation. If that is the case, you may decide to divide the map around user in some size of grid and compute values from highest point in each grid. Generally we want to do this computation in may be under a minute on a fast high-end computer workstation such HP Z8 Fury. You may create config parameters to adjust various values for perfromance and seelect a good defaults. You will need write unittests to test your algorithm with various cases and make sure it works as expected. There may be balance between performance and quality. You should create a file called ALGORITHM.md in project root and note down your thinking process for the algorithm, various options you explored, decisions you made, configuration parameters, main test cases and your expectation for performance vs accuracy balance. Each of the points you find on terrain as candidate is what we will refer to as potential candidate as "target point". These points we will then further filter down below.
+## Current Scope Boundary
 
-For our purpose above will yield some candidate points but we still need to filter them down depending on drivability to those points. For this, you can assume that user owns usual sedan and can drive on dirt roads that do not require four wheel drive or paved roads. You will now need a dataset for road network that you can utilize. You should conduct a deep research on availibility of such dataset, their formats, how to download, sample code and use them in general. You should write down the various options you considered, various facts and surprises you discovered and final decision made to use a specific dataset in ROAD_DATA_SOURCES.md file. You should also include format details, code examples, instructions for download etc in this file. Our goal is to utilize easy to download and use datasets for this project. For roads dataset, we would also like it to be more upto date (may be just few years behind in worst case). Once you chose dataset, follow same process as you did for terrain dataset, i.e., write script to download, create sample for toyrun, may be generate synthetic data if needed. Make sure to document this in ROAD_DATA_SOURCES.md file.
+The current model is a terrain-screening and ranking aid. It does not account for magnetic
+declination, Earth curvature/refraction, measured vegetation/building heights, road routing,
+weather, land ownership, trail safety, or legal access. These boundaries and the implications of
+the heuristic scoring model are maintained in [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
-Now that you have road data, you need code to figure out if given point is drivable. This may be easy by just checking if a given point has any close by road ending or passing around it. We want road be at least within M minutes of walking distance. You can compute the minimum closeby distance by assuming some human walking speed but make it configurable. In your output you should print lat long of target terrain point and lat long of nearest drivable point and estimated walking disnace. If you can also include the total driving distance and/or driving minutes from input lat long, that would be great but not absolutely necessory if this makes things overly complex or if dataset doesn't allow it. However, you might still chose to include some estimate of driving distance and calculated straight line distance so user has some sense of how long it might take to get there.
-
-Our final piece of puzzle is what obstructions might be between user when they arrive at your chosen point and line of sight. For example, there may be dense forest or houses or buildings in the line of sight that may block the clear view that user desired. If it is possible to infer these obstructions from map detail then please do implement them. Also, allow user to specify estimated obstruction using two numbers:
-
-1. Obstruction start distance: User may specify some number in feets, for example 30 ft, for this parameter which means user expects all obstructions to be located at least 30 ft away from all of the target points on terrain. That is, within the 30 ft of radius from all the target points on terrain, expect no obstructions.
-2. Obstrcution height: User may specify maximum obstruction height, for example 50 ft, for this parameter which means user expects various obstrctions of height upto 50 ft surrounding the target point after above start distance.
-
-Assume user height to be 6 ft for all calculations but make it configurable. User should be able to chose the obstructions layout by using map details that you can automatically infer or by using above two numbers. For modelling obstructions, it acceptable to start with configurable synthetic assumptions only.
-
-You should create various small synthetic data files and write unit tests to validate your algorithm.
-
-Your output should contain one row for each target lat long with columns containing altitude of target point, lat long and altitude of nearest drivable point, expected median and mean visibility distance without obstraction within desired field of view, actual maximum field of view for desired minimum visibile line of sight, expected distance in miles to target point, expected drive time to target point, expected walk time from driving point to target point. You can also write these in csv.
-
-You may use rich package to enhance output. Make sure to use Python logging to give feedback on various part of process and calculations. You can also include suggested top 2 driving points and text rendering of expected visibility within full 360-degree view so user can visually understand what to expect. While this .png is optional, it is highly recommanded we can include minimal version in MVP and do the full version in future if needed.
-
-Finally, this is great to have feature if it is easy to implement: create a .png image with a great rendering of terrain, indicate input lat long with star, indicate the final points you found on map with circles, draw roads with lables, draw any point of interests including area names, city names, forest names, community names etc. However, if these requirements for .png image makes things too complex then you may decide to drop them if needed. You can output the path of .png to user.
+Implementation details and design trade-offs are documented in [docs/ALGORITHM.md](docs/ALGORITHM.md),
+[docs/OBSTRUCTION_MODEL.md](docs/OBSTRUCTION_MODEL.md), and [docs/SCORING.md](docs/SCORING.md).

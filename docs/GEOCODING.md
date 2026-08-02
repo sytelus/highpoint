@@ -1,10 +1,38 @@
 # Offline Geocoding
 
-HighPoint converts user-friendly place strings (for example, `Issaquah, WA`) into latitude/longitude/elevation values without contacting external services. This is powered by the U.S. Geological Survey's Geographic Names Information System (GNIS) populated places extract, which is published as a periodically refreshed pipe-delimited text file and includes 3DEP-derived elevation estimates for each feature.citeturn0search0turn0search3turn0search5
+HighPoint resolves U.S. place names locally after a one-time download from the U.S. Geological
+Survey's Geographic Names Information System (GNIS).
 
-## Workflow
+## Build the Gazetteer
 
-1. Download the national GNIS extract with `python scripts/fetch_gazetteer.py`. The script fetches the official `NationalFile.zip`, filters for `FEATURE_CLASS == "Populated Place"`, and emits a compact CSV (`gnis_populated_places.csv`) under `$DATA_ROOT/highpoint/geo/`.citeturn0search0turn0search2
-2. `TownGazetteer` (in `highpoint.data.geocode`) loads that CSV, normalises names, and serves lookups via `resolve_town("Town, ST")`, returning coordinates and altitude in metres. Cached parsing keeps repeated lookups fast.
+```bash
+python scripts/fetch_gazetteer.py
+```
 
-The GNIS dataset covers more than two million named U.S. features and is refreshed every other month; re-run the fetch script any time you need an updated snapshot.citeturn0search3
+The script downloads the official national **Populated Places** topical archive, converts state
+names to postal abbreviations, and atomically writes
+`$DATA_ROOT/highpoint/geo/gnis_populated_places.csv`. An interrupted conversion does not replace an
+existing usable CSV.
+
+The current topical product contains feature IDs, names, states, and coordinates but no elevation
+column. HighPoint leaves `elevation_m` empty for downloaded records; supply `--altitude` or
+`observer.altitude_m` when that metadata matters. The checked-in toy gazetteer includes sample
+elevations for deterministic tests.
+
+USGS documents the current product formats and states that downloads are refreshed every other
+month on its [Download GNIS Data](https://www.usgs.gov/us-board-on-geographic-names/download-gnis-data)
+page. Re-run the command when a refreshed local snapshot is needed.
+
+## Use
+
+```bash
+highpoint --location "Issaquah, WA"
+```
+
+`TownGazetteer` accepts `Town, ST`, `Town ST`, or a full state name and performs case-insensitive
+exact lookup. Prefix matches are used only to produce up to five suggestions after an exact lookup
+fails. Duplicate GNIS names currently resolve to the first record in the source file.
+
+If `DATA_ROOT` is explicitly set and its gazetteer is missing, HighPoint reports the missing path;
+it does not silently fall back to the toy file. When `DATA_ROOT` is unset, the toy gazetteer is used
+for the bundled example locations.

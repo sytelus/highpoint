@@ -20,6 +20,7 @@ def render_map(
     output_path: Path,
 ) -> None:
     """Render a PNG overview map if matplotlib is available."""
+    results_seq = list(results)
     fig, ax = plt.subplots(figsize=(6, 6), dpi=150)
 
     if terrain is not None:
@@ -28,12 +29,13 @@ def render_map(
         image = ax.pcolormesh(xs, ys, elev, shading="auto", cmap="terrain")
         fig.colorbar(image, ax=ax, label="Elevation (m)")
 
-    candidates_x = [result.candidate.x for result in results]
-    candidates_y = [result.candidate.y for result in results]
+    candidates_x = [result.candidate.x for result in results_seq]
+    candidates_y = [result.candidate.y for result in results_seq]
 
-    ax.scatter(candidates_x, candidates_y, marker="o", color="crimson", label="Candidate")
+    if results_seq:
+        ax.scatter(candidates_x, candidates_y, marker="o", color="crimson", label="Candidate")
 
-    for idx, result in enumerate(results, start=1):
+    for idx, result in enumerate(results_seq, start=1):
         ax.text(result.candidate.x, result.candidate.y, str(idx), color="white", fontsize=8)
         if result.drivability and result.drivability.access_point:
             access_x, access_y = result.drivability.access_point.coordinate
@@ -48,7 +50,8 @@ def render_map(
     ax.set_xlabel("Easting (m)")
     ax.set_ylabel("Northing (m)")
     ax.set_title("HighPoint Candidate Overview")
-    ax.legend(loc="upper right")
+    if results_seq:
+        ax.legend(loc="upper right")
     ax.set_aspect("equal")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

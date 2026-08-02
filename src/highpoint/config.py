@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from omegaconf import DictConfig, OmegaConf
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def data_root() -> Path:
+def data_root(*, create: bool = True) -> Path:
     """
     Return the resolved data root used for external datasets.
 
@@ -22,11 +22,27 @@ def data_root() -> Path:
     base_env = os.environ.get("DATA_ROOT")
     base_root = Path(base_env).expanduser() if base_env else PROJECT_ROOT / "data"
     root = (base_root / "highpoint").resolve()
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def output_root() -> Path:
+    """Return the project-specific directory used for relative output paths."""
+    base_env = os.environ.get("OUT_DIR")
+    base_root = Path(base_env).expanduser() if base_env else PROJECT_ROOT / "out"
+    root = (base_root / "highpoint").resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
-class TerrainConfig(BaseModel):
+class ConfigModel(BaseModel):
+    """Base model that rejects misspelled or unsupported configuration keys."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class TerrainConfig(ConfigModel):
     """Settings that control terrain data acquisition and sampling."""
 
     source: str = Field(
@@ -60,7 +76,7 @@ class TerrainConfig(BaseModel):
     )
 
 
-class RoadConfig(BaseModel):
+class RoadConfig(ConfigModel):
     """Settings related to road network filtering and distance calculations."""
 
     source: str = Field(default="osm_geofabrik", description="Configured road dataset key.")
@@ -74,14 +90,14 @@ class RoadConfig(BaseModel):
     max_drive_minutes: float | None = Field(default=None, ge=1.0, le=600.0)
 
 
-class VisibilityConfig(BaseModel):
+class VisibilityConfig(ConfigModel):
     """User-driven visibility and obstruction preferences."""
 
     observer_eye_height_m: float = Field(default=1.8, ge=0.5, le=3.0)
-    obstruction_start_m: float = Field(default=10.0, ge=0.0)
-    obstruction_height_m: float = Field(default=15.0, ge=0.0)
+    obstruction_start_m: float = Field(default=30.0, ge=0.0)
+    obstruction_height_m: float = Field(default=3.0, ge=0.0)
     min_visibility_miles: float = Field(default=3.0, ge=0.1)
-    min_field_of_view_deg: float = Field(default=30.0, ge=1.0, le=360.0)
+    min_field_of_view_deg: float = Field(default=10.0, ge=1.0, le=360.0)
     azimuth_deg: float = Field(default=0.0, ge=0.0, lt=360.0)
     azimuth_tolerance_deg: float = Field(
         default=45.0,
@@ -91,8 +107,23 @@ class VisibilityConfig(BaseModel):
     )
     rays_full_circle: int = Field(default=72, ge=8, le=720, description="Rays for 360° scan.")
 
+    @model_validator(mode="after")
+    def validate_angular_resolution(self) -> Self:
+        """Ensure the requested field of view can be represented by the ray grid."""
+        sector_width = self.azimuth_tolerance_deg * 2.0
+        if self.min_field_of_view_deg > sector_width:
+            raise ValueError(
+                "min_field_of_view_deg cannot exceed twice azimuth_tolerance_deg",
+            )
+        angular_step = 360.0 / self.rays_full_circle
+        if angular_step > self.min_field_of_view_deg:
+            raise ValueError(
+                "rays_full_circle is too small to resolve min_field_of_view_deg",
+            )
+        return self
 
-class OutputConfig(BaseModel):
+
+class OutputConfig(ConfigModel):
     """Presentation preferences."""
 
     results_limit: int = Field(default=10, ge=1, le=100)
@@ -102,15 +133,19 @@ class OutputConfig(BaseModel):
     render_png: Path | None = Field(default=None)
 
 
-class ObserverInput(BaseModel):
+class ObserverInput(ConfigModel):
     """User-provided origin point."""
 
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
     altitude_m: float = Field(default=0.0)
+    location: str | None = Field(
+        default=None,
+        description="Optional town and state used by the CLI's offline gazetteer.",
+    )
 
 
-class AppConfig(BaseModel):
+class AppConfig(ConfigModel):
     """Top-level configuration for the HighPoint pipeline."""
 
     observer: ObserverInput
@@ -118,47 +153,6 @@ class AppConfig(BaseModel):
     roads: RoadConfig = Field(default_factory=RoadConfig)
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
-
-    @validator("output")
-    def validate_output_paths(cls, value: OutputConfig) -> OutputConfig:  # noqa: N805
-        """Ensure export directories exist."""
-        for path in [value.export_csv, value.export_geojson, value.render_png]:
-            if path is not None:
-                path.parent.mkdir(parents=True, exist_ok=True)
-        return value
-
-
-class DatasetRegistry(BaseModel):
-    """Configuration for dataset sources loaded from YAML."""
-
-    terrain: dict[str, Any]
-    roads: dict[str, Any]
-
-    @classmethod
-    def from_yaml(cls, path: Path) -> DatasetRegistry:
-        cfg = OmegaConf.load(path)
-        raw: dict[str, Any] = {}
-        if cfg is not None:
-            container = OmegaConf.to_container(cfg, resolve=True)
-            if isinstance(container, dict):
-                raw = cast(dict[str, Any], container)
-        terrain = raw.get("terrain", {})
-        roads = raw.get("roads", {})
-        return cls(terrain=terrain, roads=roads)
-
-    def terrain_source(self, key: str) -> dict[str, Any]:
-        try:
-            sources = cast(dict[str, Any], self.terrain["sources"])
-            return cast(dict[str, Any], sources[key])
-        except KeyError as exc:  # pragma: no cover - configuration error
-            raise KeyError(f"Unknown terrain source '{key}'") from exc
-
-    def road_source(self, key: str) -> dict[str, Any]:
-        try:
-            sources = cast(dict[str, Any], self.roads["sources"])
-            return cast(dict[str, Any], sources[key])
-        except KeyError as exc:  # pragma: no cover - configuration error
-            raise KeyError(f"Unknown road source '{key}'") from exc
 
 
 def load_config(
@@ -178,7 +172,7 @@ def load_config(
     Parameters beyond the explicit arguments will be matched to nested configuration
     keys using dotted notation (e.g. ``terrain.search_radius_km=40``).
     """
-    base_dict = {
+    cli_values = {
         "observer": {
             "latitude": observer_lat,
             "longitude": observer_lon,
@@ -194,11 +188,17 @@ def load_config(
         },
     }
 
-    config_cfg: DictConfig = OmegaConf.create(base_dict)
+    config_cfg = OmegaConf.create({})
 
     if config_path:
-        file_cfg = cast(DictConfig, OmegaConf.load(config_path))
+        file_cfg = OmegaConf.load(config_path)
+        if not isinstance(file_cfg, DictConfig):
+            raise ValueError(f"Configuration file {config_path} must contain a YAML mapping.")
         config_cfg = cast(DictConfig, OmegaConf.merge(config_cfg, file_cfg))
+
+    # Primitive arguments originate at the CLI (or its resolved defaults) and therefore
+    # must take precedence over values loaded from YAML.
+    config_cfg = cast(DictConfig, OmegaConf.merge(config_cfg, cli_values))
 
     if overrides:
         for dotted_key, value in overrides.items():
@@ -208,26 +208,45 @@ def load_config(
             OmegaConf.update(config_cfg, dotted_key, converted, merge=True)
 
     container = OmegaConf.to_container(config_cfg, resolve=True)
+    if not isinstance(container, dict):  # pragma: no cover - guarded by DictConfig above
+        raise ValueError("Merged configuration must be a mapping.")
     config_dict = cast(dict[str, Any], container)
     config = AppConfig.model_validate(config_dict)
     return _resolve_relative_paths(config)
 
 
 def _resolve_relative_paths(config: AppConfig) -> AppConfig:
-    root = data_root()
+    input_root = data_root()
     updates: dict[str, Any] = {}
 
     terrain_path = config.terrain.data_path
     if terrain_path is not None:
-        terrain_resolved = _resolve_data_path(terrain_path, root)
+        terrain_resolved = _resolve_data_path(terrain_path, input_root)
         if terrain_resolved != terrain_path:
             updates["terrain"] = config.terrain.model_copy(update={"data_path": terrain_resolved})
 
     road_path = config.roads.data_path
     if road_path is not None:
-        road_resolved = _resolve_data_path(road_path, root)
+        road_resolved = _resolve_data_path(road_path, input_root)
         if road_resolved != road_path:
             updates["roads"] = config.roads.model_copy(update={"data_path": road_resolved})
+
+    output_paths = {
+        "export_csv": config.output.export_csv,
+        "export_geojson": config.output.export_geojson,
+        "render_png": config.output.render_png,
+    }
+    if any(path is not None for path in output_paths.values()):
+        destination_root = output_root()
+        resolved_outputs: dict[str, Path | None] = {}
+        for key, path in output_paths.items():
+            if path is None:
+                resolved_outputs[key] = None
+                continue
+            resolved = path if path.is_absolute() else (destination_root / path).resolve()
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved_outputs[key] = resolved
+        updates["output"] = config.output.model_copy(update=resolved_outputs)
 
     if updates:
         return config.model_copy(update=updates)

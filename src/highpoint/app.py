@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import typer
 from omegaconf import DictConfig, OmegaConf
 
-from highpoint.config import load_config
+from highpoint.config import OutputConfig, VisibilityConfig, load_config
 from highpoint.data.discovery import DatasetNotFoundError
 from highpoint.data.geocode import (
     GazetteerUnavailableError,
@@ -24,16 +24,30 @@ app = typer.Typer(help="HighPoint: find drivable scenic viewpoints with clear vi
 
 
 def _configure_logging(level: str) -> None:
+    numeric_level = getattr(logging, level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise typer.BadParameter(
+            f"Unknown logging level '{level}'.",
+            param_hint="--log-level",
+        )
     logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
+        level=numeric_level,
         format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
     )
 
 
 @app.command()
 def main(
-    latitude: float | None = typer.Argument(None, help="Observer latitude in decimal degrees."),
-    longitude: float | None = typer.Argument(None, help="Observer longitude in decimal degrees."),
+    latitude: float | None = typer.Option(
+        None,
+        "--latitude",
+        help="Observer latitude in decimal degrees.",
+    ),
+    longitude: float | None = typer.Option(
+        None,
+        "--longitude",
+        help="Observer longitude in decimal degrees.",
+    ),
     location: str | None = typer.Option(
         None,
         "--location",
@@ -75,6 +89,11 @@ def main(
         "--config",
         "-c",
         help="Optional OmegaConf YAML configuration to load before applying CLI overrides.",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
     ),
     terrain_file: Path | None = typer.Option(
         None,
@@ -119,7 +138,16 @@ def main(
 
     file_config: DictConfig | None = None
     if config_file:
-        file_config = cast(DictConfig, OmegaConf.load(config_file))
+        try:
+            loaded_config = OmegaConf.load(config_file)
+        except Exception as exc:
+            raise typer.BadParameter(str(exc), param_hint="--config") from exc
+        if not isinstance(loaded_config, DictConfig):
+            raise typer.BadParameter(
+                f"Configuration file {config_file} must contain a YAML mapping.",
+                param_hint="--config",
+            )
+        file_config = loaded_config
 
     def get_from_file(path: str, default: Any = None) -> Any:
         if file_config is None:
@@ -129,20 +157,41 @@ def main(
     observer_lat = latitude if latitude is not None else get_from_file("observer.latitude")
     observer_lon = longitude if longitude is not None else get_from_file("observer.longitude")
 
+    visibility_defaults = VisibilityConfig()
+    output_defaults = OutputConfig()
+
     observer_alt = altitude if altitude is not None else get_from_file("observer.altitude_m", 0.0)
-    azimuth_val = azimuth if azimuth is not None else get_from_file("visibility.azimuth_deg", 0.0)
+    azimuth_val = (
+        azimuth
+        if azimuth is not None
+        else get_from_file("visibility.azimuth_deg", visibility_defaults.azimuth_deg)
+    )
     min_visibility_val = (
         min_visibility
         if min_visibility is not None
-        else get_from_file("visibility.min_visibility_miles", 3.0)
+        else get_from_file(
+            "visibility.min_visibility_miles",
+            visibility_defaults.min_visibility_miles,
+        )
     )
     min_fov_val = (
-        min_fov if min_fov is not None else get_from_file("visibility.min_field_of_view_deg", 30.0)
+        min_fov
+        if min_fov is not None
+        else get_from_file(
+            "visibility.min_field_of_view_deg",
+            visibility_defaults.min_field_of_view_deg,
+        )
     )
-    results_val = results if results is not None else get_from_file("output.results_limit", 5)
+    results_val = (
+        results
+        if results is not None
+        else get_from_file("output.results_limit", output_defaults.results_limit)
+    )
 
     location_value = location if location is not None else get_from_file("observer.location")
     if location_value:
+        if not isinstance(location_value, str):
+            raise typer.BadParameter("observer.location must be a string.", param_hint="--config")
         try:
             gazetteer = TownGazetteer()
             town = gazetteer.resolve(location_value)
@@ -168,6 +217,7 @@ def main(
         )
 
     overrides_raw = {
+        "observer.location": location_value,
         "terrain.search_radius_km": search_radius,
         "roads.max_walk_minutes": walk_limit,
         "roads.max_drive_minutes": drive_limit,
@@ -183,17 +233,20 @@ def main(
         if value is not None
     }
 
-    config = load_config(
-        observer_lat=observer_lat,
-        observer_lon=observer_lon,
-        observer_alt=observer_alt,
-        azimuth=azimuth_val,
-        min_visibility_miles=min_visibility_val,
-        min_fov_deg=min_fov_val,
-        results_limit=results_val,
-        config_path=config_file,
-        overrides=overrides,
-    )
+    try:
+        config = load_config(
+            observer_lat=observer_lat,
+            observer_lon=observer_lon,
+            observer_alt=observer_alt,
+            azimuth=azimuth_val,
+            min_visibility_miles=min_visibility_val,
+            min_fov_deg=min_fov_val,
+            results_limit=results_val,
+            config_path=config_file,
+            overrides=overrides,
+        )
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="--config") from exc
 
     logging.getLogger(__name__).info("Starting HighPoint pipeline")
     try:

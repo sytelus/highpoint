@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install project and development tools
+        run: python -m pip install --upgrade -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check src tests scripts main.py
+      - name: Check formatting
+        run: python -m black --check src tests scripts main.py
+      - name: Type-check
+        run: python -m mypy --strict src tests scripts main.py
+      - name: Test
+        run: python -m pytest --cov=highpoint --cov-report=term-missing

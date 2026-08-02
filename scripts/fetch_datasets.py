@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlretrieve
 
 import typer
 
+from highpoint.config import data_root
 from highpoint.data.roads import RoadNetwork
 from highpoint.data.terrain import generate_synthetic_dem, save_grid_to_geotiff
 
@@ -21,7 +21,7 @@ app = typer.Typer(help="Download HighPoint terrain and road datasets.")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-@dataclass
+@dataclass(frozen=True)
 class RegionConfig:
     name: str
     bbox: tuple[float, float, float, float] | None
@@ -36,7 +36,7 @@ REGIONS = {
         bbox=None,
         terrain_tiles=None,
         roads_url=None,
-        description="Synthetic 2km x 2km DEM and small GeoJSON road grid for tests.",
+        description="Synthetic 4.8 km x 4.8 km DEM and small GeoJSON road grid for tests.",
     ),
     "washington": RegionConfig(
         name="washington",
@@ -55,13 +55,6 @@ REGIONS = {
         description="Contiguous United States coverage (large downloads).",
     ),
 }
-
-
-def data_root() -> Path:
-    base = Path(os.environ.get("DATA_ROOT", Path.home() / "data")).expanduser()
-    root = (base / "highpoint").resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    return root
 
 
 def ensure_directories(root: Path) -> None:
@@ -96,17 +89,23 @@ def tile_url(tile: str) -> str:
 
 
 def download(url: str, destination: Path, dry_run: bool) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
+    if destination.is_file() and destination.stat().st_size > 0:
         typer.echo(f"Skipping existing {destination}")
         return
 
     typer.echo(f"{'DRY RUN: would download' if dry_run else 'Downloading'} {url}")
     if dry_run:
         return
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f"{destination.name}.part")
     try:
-        urlretrieve(url, destination)
+        urlretrieve(url, temporary)
+        if not temporary.is_file() or temporary.stat().st_size == 0:
+            raise RuntimeError(f"Download from {url} produced an empty file.")
+        temporary.replace(destination)
     except Exception as exc:  # pragma: no cover - network errors not in tests
+        temporary.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to download {url}") from exc
 
 
@@ -115,13 +114,13 @@ def create_toy_assets(dry_run: bool) -> None:
     dem_path = toy_dir / "dem_synthetic.tif"
     roads_path = toy_dir / "roads_synthetic.geojson"
     typer.echo("Generating synthetic DEM and road assets in repository toy directory.")
-    toy_dir.mkdir(parents=True, exist_ok=True)
     if dem_path.exists() and roads_path.exists():
         typer.echo("Toy assets already exist; skipping regeneration.")
         return
     if dry_run:
         typer.echo("DRY RUN: skipping synthetic asset creation.")
         return
+    toy_dir.mkdir(parents=True, exist_ok=True)
     dem = generate_synthetic_dem()
     save_grid_to_geotiff(dem, dem_path)
     road_network = RoadNetwork.synthetic()
@@ -130,7 +129,7 @@ def create_toy_assets(dry_run: bool) -> None:
         features.append(
             {
                 "type": "Feature",
-                "geometry": json.loads(json.dumps(line.__geo_interface__)),
+                "geometry": line.__geo_interface__,
                 "properties": {"source": "synthetic"},
             },
         )
@@ -154,8 +153,9 @@ def main(
 
     Use --dry-run to preview downloads and derived assets without making changes.
     """
-    root = data_root()
-    ensure_directories(root)
+    root = data_root(create=not dry_run)
+    if not dry_run:
+        ensure_directories(root)
     key = region.lower()
     if key not in REGIONS:
         typer.echo(f"Unknown region '{region}'. Choose from: {', '.join(REGIONS)}", err=True)

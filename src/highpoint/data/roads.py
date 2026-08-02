@@ -26,7 +26,7 @@ def _read_geo_dataframe(path: Path, **kwargs: object) -> gpd.GeoDataFrame:
         raise
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoadAccessPoint:
     """Details about the nearest drivable location relative to a terrain candidate."""
 
@@ -95,7 +95,9 @@ class RoadNetwork:
         point_xy: tuple[float, float],
         walking_speed_kmh: float,
     ) -> RoadAccessPoint:
-        """Find the shortest walking route from a projected coordinate to the road network."""
+        """Find the shortest straight-line walk from a point to the road network."""
+        if walking_speed_kmh <= 0.0:
+            raise ValueError("walking_speed_kmh must be positive")
         target_x, target_y = point_xy
         best_distance_sq = np.inf
         best_coordinate: tuple[float, float] | None = None
@@ -147,6 +149,8 @@ def estimate_driving_time_minutes(
 
     Without full routing we approximate actual road distance as 1.35x the Euclidean distance.
     """
+    if driving_speed_kmh <= 0.0:
+        raise ValueError("driving_speed_kmh must be positive")
     dx = observer_xy[0] - road_point_xy[0]
     dy = observer_xy[1] - road_point_xy[1]
     straight_distance_m = float(np.hypot(dx, dy))

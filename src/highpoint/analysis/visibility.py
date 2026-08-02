@@ -11,10 +11,10 @@ from scipy.ndimage import map_coordinates
 from highpoint.analysis.candidates import TerrainCandidate
 from highpoint.config import AppConfig
 from highpoint.data.terrain import TerrainGrid
-from highpoint.utils import azimuth_range, miles_to_meters, unit_vector
+from highpoint.utils import miles_to_meters, unit_vector
 
 
-@dataclass
+@dataclass(frozen=True)
 class VisibilityMetrics:
     """Visibility statistics along discrete rays."""
 
@@ -49,15 +49,8 @@ def compute_visibility_metrics(
     angles = [i * az_step for i in range(visibility_cfg.rays_full_circle)]
 
     ray_results: dict[float, float] = {}
-    max_distance_m = 0.0
-    distances_for_sector: list[float] = []
-    distances_meeting_requirement: list[float] = []
     rays_with_clearance = 0
 
-    sector_start, sector_end = azimuth_range(
-        visibility_cfg.azimuth_deg,
-        visibility_cfg.min_field_of_view_deg,
-    )
     min_required_distance = miles_to_meters(visibility_cfg.min_visibility_miles)
 
     for angle in angles:
@@ -72,19 +65,32 @@ def compute_visibility_metrics(
             obstruction_height=visibility_cfg.obstruction_height_m,
         )
         ray_results[angle] = distance
-        max_distance_m = max(max_distance_m, distance)
         if clearance_met:
             rays_with_clearance += 1
-        if _angle_in_sector(angle, sector_start, sector_end):
-            distances_for_sector.append(distance)
-            if distance >= min_required_distance:
-                distances_meeting_requirement.append(distance)
 
+    sector_rays = sorted(
+        (
+            (_signed_angular_offset(angle, visibility_cfg.azimuth_deg), distance)
+            for angle, distance in ray_results.items()
+            if abs(_signed_angular_offset(angle, visibility_cfg.azimuth_deg))
+            <= visibility_cfg.azimuth_tolerance_deg + 1e-9
+        ),
+        key=lambda item: item[0],
+    )
+    distances_for_sector = [distance for _, distance in sector_rays]
+    clear_rays = [distance >= min_required_distance for distance in distances_for_sector]
+    sector_width = min(360.0, visibility_cfg.azimuth_tolerance_deg * 2.0)
+
+    max_distance_m = max(distances_for_sector, default=0.0)
     mean_distance_m = float(np.mean(distances_for_sector)) if distances_for_sector else 0.0
     median_distance_m = float(np.median(distances_for_sector)) if distances_for_sector else 0.0
-
-    actual_fov_deg = (
-        len(distances_meeting_requirement) * az_step if distances_meeting_requirement else 0.0
+    actual_fov_deg = min(
+        sector_width,
+        _longest_clear_run(
+            clear_rays,
+            circular=math.isclose(sector_width, 360.0),
+        )
+        * az_step,
     )
 
     return VisibilityMetrics(
@@ -125,14 +131,29 @@ def _trace_ray(
         x = candidate.x + unit_dx * distance
         y = candidate.y + unit_dy * distance
         col, row = inv_transform * (x, y)
-        if row < 0 or row >= grid.height or col < 0 or col >= grid.width:
+        # Affine inversion returns pixel-corner coordinates, while scipy interpolation
+        # treats integer indices as pixel centers.
+        row_index = row - 0.5
+        col_index = col - 0.5
+        if (
+            row_index < 0
+            or row_index > grid.height - 1
+            or col_index < 0
+            or col_index > grid.width - 1
+        ):
             break
 
         sample = float(
-            map_coordinates(grid.elevations, [[row], [col]], order=1, mode="nearest")[0],
+            map_coordinates(
+                grid.elevations,
+                [[row_index], [col_index]],
+                order=1,
+                mode="nearest",
+            )[0],
         )
         if np.isnan(sample):
-            continue
+            # Unknown terrain cannot safely be treated as transparent line of sight.
+            break
 
         if distance <= obstruction_start and not clearance_met:
             drop = candidate.elevation_m - sample
@@ -155,7 +176,20 @@ def _trace_ray(
     return visible_distance, True
 
 
-def _angle_in_sector(angle: float, start: float, end: float) -> bool:
-    if start <= end:
-        return start <= angle <= end
-    return angle >= start or angle <= end
+def _signed_angular_offset(angle: float, center: float) -> float:
+    """Return the shortest signed offset from ``center`` in ``[-180, 180)``."""
+    return (angle - center + 180.0) % 360.0 - 180.0
+
+
+def _longest_clear_run(clear_rays: list[bool], *, circular: bool) -> int:
+    """Return the longest contiguous run of clear angular samples."""
+    if not clear_rays:
+        return 0
+
+    samples = clear_rays * 2 if circular else clear_rays
+    longest = 0
+    current = 0
+    for is_clear in samples:
+        current = current + 1 if is_clear else 0
+        longest = max(longest, current)
+    return min(longest, len(clear_rays))

@@ -1,101 +1,132 @@
 # HighPoint
 
-HighPoint finds drivable scenic viewpoints that satisfy visibility goals such as minimum sight distance, field-of-view, and viewing direction. Feed it digital elevation models and OpenStreetMap road data and it ranks candidate locations that a sedan can reach within a configurable walking distance.
+HighPoint ranks scenic terrain viewpoints near a supplied location. It combines a digital
+elevation model (DEM), a drivable-road GeoJSON, a synthetic obstruction model, and configurable
+visibility goals. The current implementation is designed for Washington State and for offline,
+local-first analysis after datasets have been prepared.
 
-## Highlights
+## Features
 
-- Terrain visibility engine with obstruction controls, clustering, and scoring tuned for sub-minute runs.
-- Dataset tooling that downloads SRTM DEM tiles and Geofabrik road extracts for toy, Washington, or full US coverage.
-- Automatic dataset discovery: supply latitude/longitude and HighPoint picks the correct DEM tiles and road cache.
-- Offline geocoding: resolve "Town, ST" strings to coordinates and elevation without internet (USGS GNIS powered).
-- OmegaConf-based configs (`configs/toyrun.yaml`) and a Typer CLI (`main.py`) with rich panels, CSV/GeoJSON exports, and optional map rendering. Candidate scoring is documented in `docs/SCORING.md`.
+- Finds and clusters terrain summits before running 360-degree line-of-sight sampling.
+- Requires a contiguous clear field of view around a requested azimuth and rejects candidates
+  that do not meet the configured distance and FOV goals.
+- Filters candidates by straight-line walking distance to sedan-accessible road geometries.
+- Estimates drive time offline and exports ranked results to the terminal, CSV, GeoJSON, or PNG.
+- Includes a checked-in 4.8 km synthetic DEM, road grid, gazetteer, and VS Code toy-run profile.
+- Discovers local DEM tiles and road caches without contacting a service during analysis.
 
-## Environment Variables
-
-Set these once before working with the project. HighPoint stores downloads under `$DATA_ROOT/highpoint` unless you override paths via configs or CLI flags (the toy run continues to read the checked-in samples under `data/toy/`).
-
-```
-export DATA_ROOT="$HOME/data"             # HighPoint uses $DATA_ROOT/highpoint internally
-export OUT_DIR="$HOME/output/highpoint"   # where reports and renders are written
-mkdir -p "$DATA_ROOT/highpoint" "$OUT_DIR"
-```
+HighPoint is an approximate planning tool, not a navigation or safety system. Read
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md) before relying on its results.
 
 ## Setup
 
-Run the installer (creates `.venv/`, upgrades pip, and installs all deps + dev extras):
+Python 3.11 or newer is required. Linux and WSL are the supported and CI-tested workflows:
 
-```
+```bash
 ./install.sh
+source .venv/bin/activate
 ```
 
-Install toy data for the quick run (optional but recommended). This keeps the miniature fixtures in-repo for debugging while the larger datasets live under `$DATA_ROOT/highpoint`:
+Equivalent pip installation is also supported:
 
-```
-./scripts/download_toy_data.sh
-```
-
-Build the offline gazetteer once (downloads the USGS GNIS populated places file) so `--location "Town, ST"` works without network access:
-
-```
-python scripts/fetch_gazetteer.py
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
-## Quick Start Runs
+Native Windows and macOS may work when binary wheels are available for the geospatial
+dependencies, but they are not currently exercised in CI. On native Windows, create and activate
+the environment with `py -3.11 -m venv .venv` and `.venv\Scripts\Activate.ps1` before running the
+same pip command.
 
-### Toy Run (fully offline)
+## Environment
 
+`DATA_ROOT` is the base directory for large datasets; HighPoint uses its `highpoint/`
+subdirectory. `OUT_DIR` is the base output directory; relative export paths are placed under its
+`highpoint/` subdirectory.
+
+```bash
+export DATA_ROOT="$HOME/data"
+export OUT_DIR="$HOME/output"
+mkdir -p "$DATA_ROOT" "$OUT_DIR"
 ```
-export DATA_ROOT="$(pwd)/data"
-python main.py --config configs/toyrun.yaml --render-png "$OUT_DIR/toy.png"
+
+When unset, the defaults are `data/highpoint/` and `out/highpoint/` in the repository.
+
+## Toy Run
+
+The toy assets are checked in, so this run is fully offline:
+
+```bash
+python main.py --config configs/toyrun.yaml --render-png toy.png
 ```
 
-### Washington State (auto-detected tiles)
+The relative PNG path resolves to `$OUT_DIR/highpoint/toy.png`. The installed console command is
+equivalent:
 
+```bash
+highpoint --config configs/toyrun.yaml --export-csv toy-results.csv
 ```
-./scripts/download_washington_data.sh
-python main.py --location "Seattle, WA" --azimuth 0 --min-visibility 4 \
-  --render-png "$OUT_DIR/seattle.png"
-```
 
-HighPoint inspects the downloads under `$DATA_ROOT/highpoint` and picks the DEM tiles and road cache covering the requested radius. If required files are missing you'll get a friendly message with the exact download command.
+To restore missing deterministic fixtures, run `python scripts/fetch_datasets.py --region toy`.
+The VS Code **HighPoint ToyRun** launch configuration provides the same end-to-end workflow.
 
-Need a custom driving area? Use `python -m highpoint.scripts.build_road_cache --north <lat> --south <lat> --east <lon> --west <lon>` to clip a GeoJSON cache once, then rerun `main.py` and HighPoint will detect it automatically.
+## Real Data Workflow
 
-## Configuration & Overrides
+1. Download DEM tiles and the raw Geofabrik extract:
 
-1. Copy `configs/toyrun.yaml` to a new file (for example `configs/my_run.yaml`) and edit the values that matter to you. Every option, default, and CLI flag is described in detail in `docs/configuration.md`.
-2. Run with `python main.py --config configs/my_run.yaml` or supply an absolute path. You can still override single values with dotted keys such as `--terrain.search_radius_km=12` or `--visibility.min_visibility_miles=5`.
-3. Prefer `--location "Town, ST"` (or `observer.location` in YAML) when you want automatic geocoding. The CLI falls back to explicit latitude/longitude if the gazetteer is missing.
-4. Keep `DATA_ROOT` pointing at a location where terrain and road datasets should be cached, and set `OUT_DIR` to the folder that should receive renders/exports.
+   ```bash
+   python scripts/fetch_datasets.py --region washington
+   ```
 
-After tweaking configuration, the report panels call out the key computed metrics, and `docs/SCORING.md` explains how those metrics combine into the final score.
+2. Build a focused GeoJSON road cache. The analysis pipeline does not ingest the downloaded PBF
+   directly:
 
-## Documentation
+   ```bash
+   python -m highpoint.scripts.build_road_cache \
+     --north 47.75 --south 47.45 --east -121.95 --west -122.55
+   ```
 
-- `docs/ALGORITHM.md` – end-to-end pipeline overview.
-- `docs/TERRAIN_DATA_SOURCES.md` – terrain dataset sourcing and preprocessing notes.
-- `docs/ROAD_DATA_SOURCES.md` – road data guidance, including cache-building workflow.
-- `docs/GEOCODING.md` – offline GNIS geocoding workflow for `--location`.
-- `docs/configuration.md` – full reference for environment variables, YAML fields, and CLI overrides.
-- `docs/SCORING.md` – scoring formula, component weights, and customisation tips.
-- `docs/OBSTRUCTION_MODEL.md` – how the synthetic tree belt works and how to tune the obstruction settings.
+3. Supply coordinates, or build the offline GNIS gazetteer and use a town name:
 
-### Continental US (large download, be patient)
+   ```bash
+   python scripts/fetch_gazetteer.py
+   highpoint --location "Seattle, WA" --azimuth 270 --min-visibility 4
+   ```
 
-```
-./scripts/download_us_data.sh
-python main.py --location "Napa, CA" \
-  --results 10 --render-png "$OUT_DIR/napa.png"
-```
+   Numeric coordinates use named options so negative longitudes are unambiguous:
+
+   ```bash
+   highpoint --latitude 47.6062 --longitude -122.3321 --search-radius 10
+   ```
+
+Advanced settings belong in an OmegaConf YAML file. The CLI exposes the common path, search,
+visibility, travel, and output overrides shown by `highpoint --help`; arbitrary dotted CLI options
+are not supported.
 
 ## Development
 
-- Docs: see the [Documentation](#documentation) section above for direct links to every guide.
-- Linting & tests: `make lint` and `make test` (or `pytest`).
-- Configuration: override any knob via `configs/toyrun.yaml` or CLI flags (`python main.py --help`). Provide `--location "Town, ST"` (or set `observer.location` in YAML) to geocode latitude/longitude automatically; HighPoint falls back to explicit numeric coordinates when the gazetteer is unavailable.
+Run the complete local quality gate from the WSL/Linux environment:
 
-## Examples & Outputs
+```bash
+make lint
+make test
+python main.py --config configs/toyrun.yaml
+```
 
-- `--export-csv "$OUT_DIR/results.csv"` saves ranked viewpoints with metrics.
-- `--export-geojson "$OUT_DIR/targets.geojson"` mirrors point data for GIS tools.
-- `--render-png "$OUT_DIR/overview.png"` produces a quick terrain map of candidates.
+The checks cover Ruff, Black, strict mypy, branch-aware pytest coverage, and the offline toy
+pipeline. Build a distributable wheel with `python -m pip wheel --no-deps .`.
+
+## Documentation
+
+- [Project goals](PROJECT.md)
+- [Configuration reference](docs/configuration.md)
+- [Algorithm and test strategy](docs/ALGORITHM.md)
+- [Known limitations](docs/LIMITATIONS.md)
+- [Synthetic obstruction model](docs/OBSTRUCTION_MODEL.md)
+- [Candidate scoring](docs/SCORING.md)
+- [Terrain sources](docs/TERRAIN_DATA_SOURCES.md)
+- [Road sources](docs/ROAD_DATA_SOURCES.md)
+- [Offline geocoding](docs/GEOCODING.md)
+- [Change log](CHANGELOG.md)

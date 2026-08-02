@@ -8,7 +8,7 @@ from highpoint.config import AppConfig
 from highpoint.data.roads import RoadAccessPoint, RoadNetwork, estimate_driving_time_minutes
 
 
-@dataclass
+@dataclass(frozen=True)
 class DrivabilityResult:
     """Summary of accessibility for a candidate."""
 

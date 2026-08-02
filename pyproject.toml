@@ -1,16 +1,17 @@
 [build-system]
-requires = ["setuptools>=67", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "highpoint"
 version = "0.1.0"
 description = "Scenic viewpoint recommendation engine for Washington State."
-readme = "PROJECT.md"
+readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-  { name = "HighPoint Contributors" }
+  { name = "Shital Shah", email = "sytelus@gmail.com" }
 ]
 dependencies = [
   "numpy>=1.24",
@@ -29,6 +30,12 @@ dependencies = [
   "affine>=2.4",
   "pyarrow>=12.0"
 ]
+
+[project.scripts]
+highpoint = "highpoint.app:app"
+
+[project.urls]
+Repository = "https://github.com/sytelus/highpoint"
 
 [project.optional-dependencies]
 dev = [
@@ -68,4 +75,15 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers --disable-warnings"
+addopts = "--strict-config --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["highpoint"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.setuptools.packages.find]
+where = ["src"]

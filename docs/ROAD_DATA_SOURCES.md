@@ -1,33 +1,55 @@
 # Road Data Sources
 
-## Summary
+## Decision
 
-The HighPoint pipeline needs a drivable road network for Washington State with tags that differentiate surface quality. OpenStreetMap (OSM) provides comprehensive coverage, and Geofabrik’s regional extracts supply regularly updated `.osm.pbf` files. We use these extracts via the `osmnx` Python library, which simplifies filtering to sedan-accessible roads and converts geometries into a `networkx` graph for routing and proximity queries.
+HighPoint uses OpenStreetMap (OSM) road centerlines because they are current, widely available,
+and contain access and highway classifications. The analysis input is a focused GeoJSON cache,
+not a raw `.osm.pbf` extract and not a routable graph.
 
-## Candidates Considered
+Alternatives considered include U.S. Census TIGER/Line (broad coverage but limited surface/access
+detail) and state/local transportation GIS layers (often higher quality but inconsistent to
+automate across regions).
 
-* **OpenStreetMap via Geofabrik (Chosen)**: Weekly updates, permissive ODbL license, rich tagging (`highway`, `surface`, `access`). Download size for Washington is ~350 MB compressed. Works with osmnx, pyrosm, or direct osmium/gdal tooling.
-* **US Census TIGER/Line**: National coverage, but missing surface attributes and often misaligned in mountainous regions. Rejected because drivability inference would be unreliable.
-* **State of Washington DOT GIS Services**: High-quality shapefiles with road classifications, but terms of use restrict redistribution and automation is harder.
+## Build an Analysis Cache
 
-## Acquisition Instructions
+The installed helper queries the OSM Overpass service through OSMnx and supports both OSMnx 1.x
+and 2.x bounding-box APIs:
 
-1. Install `osmnx>=1.6` (`pip install osmnx`), which pulls in geopandas, shapely, and pyproj.
-2. Download the Washington extract:
-       wget https://download.geofabrik.de/north-america/us/washington-latest.osm.pbf -P $DATA_ROOT/highpoint/roads/raw/
-3. Build a cached GeoJSON focused on the area of interest:
-       python -m highpoint.scripts.build_road_cache --north 47.7 --south 47.4 --east -122.1 --west -122.6 --output $DATA_ROOT/highpoint/roads/cache/seattle.geojson
-   The script issues an Overpass API query via OSMnx, filters for sedan-friendly `highway` values, drops segments tagged with `access=no/private` or `surface` in `{unpaved, track, dirt, gravel, grass}`, reprojects to the target UTM CRS, and writes GeoJSON for the pipeline. For large study areas you can build multiple bounding boxes and merge the GeoJSON files.
+```bash
+python -m highpoint.scripts.build_road_cache \
+  --north 47.70 --south 47.40 --east -122.10 --west -122.60 \
+  --output "$DATA_ROOT/highpoint/roads/cache/seattle.geojson"
+```
 
-HighPoint automatically discovers GeoJSON caches under `$DATA_ROOT/highpoint/roads/cache`. If a run references a bounding box without a matching cache, the CLI prints a friendly message with the exact `build_road_cache` invocation to generate it.
+The default custom filter excludes footways, steps, paths, cycleways, bridleways, tracks, service
+roads, `motor_vehicle=no`, and `access=no/private`. It does not independently validate every surface,
+seasonal-access, gate, or vehicle-class tag. Inspect or customize the resulting data when those
+details matter.
 
-## Synthetic Fixture
+HighPoint discovers `.geojson` files under `$DATA_ROOT/highpoint/roads/cache` and selects the file
+with the greatest intersection with the requested search window. Discovery does not merge several
+road caches or prove complete road coverage.
 
-Tests use the repository copy `data/toy/roads_synthetic.geojson`, a small GeoJSON file with a grid of paved and unpaved roads. It supports deterministic unit tests for drivability checks without external downloads.
+## Raw Regional Extracts
 
-## Data Handling Notes
+`python scripts/fetch_datasets.py --region washington` downloads the current Geofabrik Washington
+`.osm.pbf` to `$DATA_ROOT/highpoint/roads/raw`. That file is retained as a source artifact, but the
+current cache builder queries Overpass and does not ingest the PBF. Direct PBF-to-GeoJSON
+conversion is tracked as future work; do not assume the raw download alone makes a run ready.
 
-* Store raw `.osm.pbf` files under `$DATA_ROOT/highpoint/roads/raw/` and derived GeoJSON caches under `$DATA_ROOT/highpoint/roads/cache/`.
-* When building caches, reproject geometries into the same UTM zone as the DEM for accurate distance calculations.
-* Keep a manifest in `configs/datasets.yaml` noting the extract date, bounding boxes, and filters applied.
-* Respect the ODbL license attribution requirements in user-facing documentation.
+## Runtime Semantics
+
+The pipeline reprojects cached line geometry into the DEM CRS and computes the shortest Euclidean
+distance from each terrain candidate to any segment. Walk time is that straight-line distance
+divided by the configured walking speed; it is not a trail route. Drive time is also heuristic and
+does not use road connectivity, speed limits, closures, or traffic.
+
+## Licensing and Attribution
+
+OSM data is available under the Open Database License and requires attribution. Review the current
+[OpenStreetMap copyright and license guidance](https://www.openstreetmap.org/copyright) before
+redistributing derived caches or published maps. Record the extraction date, bounds, and custom
+filter beside any long-lived external cache.
+
+The checked-in `data/toy/roads_synthetic.geojson` contains only generated line geometry and is used
+for deterministic offline tests.

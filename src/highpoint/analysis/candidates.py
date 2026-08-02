@@ -34,11 +34,33 @@ def identify_candidates(
     A Gaussian blur smooths noise, then a maximum filter selects cells that equal the local max
     within the neighborhood window. Prominence and slope filters ensure we keep meaningful peaks.
     """
-    smoothed = gaussian_filter(grid.elevations, sigma=1.0)
-    local_max = maximum_filter(smoothed, footprint=np.ones((neighborhood, neighborhood)))
-    mask = (smoothed == local_max) & ~np.isnan(smoothed)
+    if neighborhood < 1:
+        raise ValueError("neighborhood must be at least 1")
+    if grid.height < 2 or grid.width < 2:
+        return []
 
-    gradient_y, gradient_x = np.gradient(grid.elevations, *grid.resolution)
+    valid = np.isfinite(grid.elevations)
+    if not valid.any():
+        return []
+
+    # Normalized smoothing prevents a single nodata cell from poisoning its neighborhood.
+    weights = gaussian_filter(valid.astype(np.float64), sigma=1.0)
+    values = gaussian_filter(np.where(valid, grid.elevations, 0.0), sigma=1.0)
+    smoothed = np.divide(
+        values,
+        weights,
+        out=np.full_like(values, np.nan, dtype=np.float64),
+        where=weights > 0.0,
+    )
+    finite_smoothed = np.where(np.isfinite(smoothed), smoothed, -np.inf)
+    local_max = maximum_filter(
+        finite_smoothed,
+        footprint=np.ones((neighborhood, neighborhood)),
+    )
+    mask = np.isclose(finite_smoothed, local_max) & valid
+
+    resolution_x, resolution_y = grid.resolution
+    gradient_y, gradient_x = np.gradient(smoothed, resolution_y, resolution_x)
     slope = np.degrees(np.arctan(np.hypot(gradient_x, gradient_y)))
 
     xs, ys = grid.coordinates()
@@ -54,7 +76,11 @@ def identify_candidates(
         prominence = elevation - local_min
         if prominence < min_prominence_m:
             continue
-        if slope[row, col] < min_slope_deg:
+        slope_neighborhood = slope[
+            max(row - neighborhood, 0) : row + neighborhood + 1,
+            max(col - neighborhood, 0) : col + neighborhood + 1,
+        ]
+        if float(np.nanmax(slope_neighborhood)) < min_slope_deg:
             continue
         candidates.append(
             TerrainCandidate(

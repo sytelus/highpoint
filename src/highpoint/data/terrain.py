@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,7 +54,10 @@ class TerrainGrid:
     @property
     def resolution(self) -> tuple[float, float]:
         """Return pixel size in projected units."""
-        return self.transform.a, -self.transform.e
+        return (
+            float(np.hypot(self.transform.a, self.transform.d)),
+            float(np.hypot(self.transform.b, self.transform.e)),
+        )
 
     @property
     def height(self) -> int:
@@ -70,8 +72,10 @@ class TerrainGrid:
         rows = np.arange(self.height, dtype=np.float64)
         cols = np.arange(self.width, dtype=np.float64)
         col_grid, row_grid = np.meshgrid(cols, rows)
-        xs = self.transform.c + (col_grid + 0.5) * self.transform.a
-        ys = self.transform.f + (row_grid + 0.5) * self.transform.e
+        col_centers = col_grid + 0.5
+        row_centers = row_grid + 0.5
+        xs = self.transform.c + col_centers * self.transform.a + row_centers * self.transform.b
+        ys = self.transform.f + col_centers * self.transform.d + row_centers * self.transform.e
         return xs, ys
 
     def subset(self, bounds: tuple[float, float, float, float]) -> TerrainGrid:
@@ -103,12 +107,16 @@ class TerrainLoader:
 
         Bounds are expressed in the dataset CRS (typically meters after reprojection).
         """
+        if resolution_scale <= 0.0:
+            raise ValueError("resolution_scale must be positive")
         with rasterio.open(self.path) as dataset:
             transform = dataset.transform
             array: NDArray[np.float32]
 
             if bounds is not None:
                 slice_info = _slice_from_bounds(bounds, transform, dataset.height, dataset.width)
+                if slice_info is None:
+                    raise ValueError(f"Requested bounds do not intersect DEM {self.path}.")
             else:
                 slice_info = None
 
@@ -125,7 +133,8 @@ class TerrainLoader:
                 base_transform = transform
 
             if resolution_scale == 1.0:
-                array = dataset.read(1, window=window, out_dtype=np.float32)
+                masked = dataset.read(1, window=window, out_dtype=np.float32, masked=True)
+                array = np.ma.filled(masked, np.nan).astype(np.float32, copy=False)
                 out_transform = base_transform
             else:
                 scale = 1.0 / resolution_scale
@@ -133,16 +142,23 @@ class TerrainLoader:
                     max(1, int(round(base_height * scale))),
                     max(1, int(round(base_width * scale))),
                 )
-                array = dataset.read(
+                masked = dataset.read(
                     1,
                     window=window,
                     out_shape=out_shape,
                     resampling=Resampling.average,
                     out_dtype=np.float32,
+                    masked=True,
                 )
-                out_transform = base_transform * Affine.scale(resolution_scale)
+                array = np.ma.filled(masked, np.nan).astype(np.float32, copy=False)
+                out_transform = base_transform * Affine.scale(
+                    base_width / out_shape[1],
+                    base_height / out_shape[0],
+                )
 
             src_crs = dataset.crs
+            if target_crs and src_crs is None:
+                raise ValueError(f"DEM {self.path} has no CRS and cannot be reprojected.")
             if target_crs and src_crs and src_crs.to_string() != target_crs:
                 from rasterio.warp import (
                     Resampling as WarpResampling,
@@ -160,7 +176,7 @@ class TerrainLoader:
                     array.shape[0],
                     *src_bounds,
                 )
-                destination = np.empty((dest_height, dest_width), dtype=np.float32)
+                destination = np.full((dest_height, dest_width), np.nan, dtype=np.float32)
                 reproject(
                     source=array,
                     destination=destination,
@@ -168,6 +184,7 @@ class TerrainLoader:
                     src_crs=src_crs,
                     dst_transform=dest_transform,
                     dst_crs=target_crs,
+                    src_nodata=np.nan,
                     resampling=WarpResampling.bilinear,
                     dst_nodata=np.nan,
                     num_threads=1,
@@ -186,7 +203,7 @@ class TerrainLoader:
 
 
 def generate_synthetic_dem(
-    size: tuple[int, int] = (40, 40),
+    size: tuple[int, int] = (160, 160),
     base_height: float = 50.0,
     peak_height: float = 200.0,
 ) -> TerrainGrid:
@@ -200,9 +217,16 @@ def generate_synthetic_dem(
     x = np.linspace(0, 1, cols)
     xx, yy = np.meshgrid(x, y)
     slope = base_height + 20 * yy
-    center = np.exp(-((xx - 0.5) ** 2 + (yy - 0.4) ** 2) * 12.0)
+    # A compact rocky summit followed by a steep drop gives the toy visibility model
+    # a genuine long-distance horizon instead of a rounded shoulder that hides the valley.
+    center = np.exp(-((xx - 0.5) ** 2 + (yy - 0.4) ** 2) * 5_000.0)
     elevations = slope + center * (peak_height - base_height)
-    transform = Affine.translation(500000, 5_200_000) * Affine.scale(30, -30)
+    width_m = cols * 30.0
+    height_m = rows * 30.0
+    transform = Affine.translation(
+        500_600.0 - width_m / 2.0,
+        5_199_400.0 + height_m / 2.0,
+    ) * Affine.scale(30, -30)
     return TerrainGrid(
         elevations=elevations.astype(np.float32),
         transform=transform,
@@ -222,20 +246,7 @@ def save_grid_to_geotiff(grid: TerrainGrid, path: Path) -> None:
         "dtype": rasterio.float32,
         "crs": grid.crs,
         "transform": grid.transform,
+        "nodata": np.nan,
     }
     with rasterio.open(path, "w", **profile) as dst:
         dst.write(grid.elevations, 1)
-
-
-def flatten_coordinates(grid: TerrainGrid) -> NDArray[np.float64]:
-    """Return Nx2 array of projected coordinates for each cell."""
-    xs, ys = grid.coordinates()
-    stacked = np.column_stack((xs.ravel(), ys.ravel()))
-    return stacked
-
-
-def iter_coordinates(grid: TerrainGrid) -> Iterable[tuple[float, float]]:
-    """Yield projected coordinate tuples for each cell."""
-    xs, ys = grid.coordinates()
-    for x, y in zip(xs.ravel(), ys.ravel(), strict=False):
-        yield float(x), float(y)

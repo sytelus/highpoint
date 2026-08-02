@@ -32,7 +32,7 @@ from highpoint.utils import (
 LOG = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ViewpointResult:
     """Complete evaluation result for a candidate viewpoint."""
 
@@ -46,7 +46,7 @@ class ViewpointResult:
     score: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class PipelineOutput:
     """Artifacts produced by the pipeline."""
 
@@ -87,6 +87,15 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
                 candidate.y,
             )
             continue
+        if metrics.actual_fov_deg + 1e-9 < config.visibility.min_field_of_view_deg:
+            LOG.debug(
+                "Candidate at (%.3f, %.3f) rejected: %.1f° clear FOV is below %.1f°",
+                candidate.x,
+                candidate.y,
+                metrics.actual_fov_deg,
+                config.visibility.min_field_of_view_deg,
+            )
+            continue
         drivability = evaluate_candidate_drivability(
             candidate_xy=(candidate.x, candidate.y),
             observer_xy=observer_xy,
@@ -101,13 +110,10 @@ def run_pipeline(config: AppConfig) -> PipelineOutput:
         candidate_latlon = (candidate_lonlat[1], candidate_lonlat[0])
         access_latlon = None
         access_altitude = None
-        if drivability.access_point:
-            access_x, access_y = drivability.access_point.coordinate
-            access_lonlat = tuple(inv_transform.transform(access_x, access_y))
-            access_latlon = (access_lonlat[1], access_lonlat[0])
-            access_altitude = float(
-                _sample_elevation(terrain_grid, access_x, access_y) if terrain_grid else np.nan,
-            )
+        access_x, access_y = drivability.access_point.coordinate
+        access_lonlat = tuple(inv_transform.transform(access_x, access_y))
+        access_latlon = (access_lonlat[1], access_lonlat[0])
+        access_altitude = _sample_elevation(terrain_grid, access_x, access_y)
 
         straight_line_m = great_circle_distance_m(
             (config.observer.latitude, config.observer.longitude),
@@ -212,9 +218,10 @@ def _score_candidate(
 ) -> float:
     required_distance = miles_to_meters(config.visibility.min_visibility_miles)
     distance_score = min(1.0, metrics.max_distance_m / (required_distance * 1.5))
+    sector_width = min(360.0, config.visibility.azimuth_tolerance_deg * 2.0)
     fov_score = min(
         1.0,
-        metrics.actual_fov_deg / max(config.visibility.min_field_of_view_deg, 1.0),
+        metrics.actual_fov_deg / sector_width,
     )
     walk_penalty = max(0.0, 1.0 - (drivability.walk_minutes / config.roads.max_walk_minutes))
     elevation_bonus = float(np.tanh(candidate.elevation_m / 500.0))
@@ -226,8 +233,8 @@ def _score_candidate(
 def _sample_elevation(grid: TerrainGrid, x: float, y: float) -> float:
     inv_transform = ~grid.transform
     col, row = inv_transform * (x, y)
-    row_i = int(round(row))
-    col_i = int(round(col))
+    row_i = int(np.floor(row))
+    col_i = int(np.floor(col))
     if 0 <= row_i < grid.height and 0 <= col_i < grid.width:
         return float(grid.elevations[row_i, col_i])
     return float("nan")

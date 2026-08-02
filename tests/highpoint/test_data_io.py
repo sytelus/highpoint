@@ -9,7 +9,7 @@ from scripts.fetch_datasets import tiles_for_bbox
 from shapely.geometry import LineString
 
 from highpoint.config import load_config
-from highpoint.data.roads import RoadNetwork
+from highpoint.data.roads import RoadNetwork, estimate_driving_time_minutes
 from highpoint.data.terrain import TerrainLoader, generate_synthetic_dem, save_grid_to_geotiff
 from highpoint.pipeline import run_pipeline
 
@@ -63,6 +63,15 @@ def test_road_network_from_geojson__loads_lines(tmp_path: Path) -> None:
     assert 0.0 <= result.distance_m <= 200.0
 
 
+def test_nonpositive_travel_speed__raises() -> None:
+    network = RoadNetwork.synthetic()
+
+    with pytest.raises(ValueError, match="walking_speed_kmh"):
+        network.nearest_access_point((500000.0, 5_200_000.0), walking_speed_kmh=0.0)
+    with pytest.raises(ValueError, match="driving_speed_kmh"):
+        estimate_driving_time_minutes((0.0, 0.0), (1.0, 1.0), driving_speed_kmh=0.0)
+
+
 def test_load_config_with_file_and_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -92,11 +101,15 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
     grid = generate_synthetic_dem()
     save_grid_to_geotiff(grid, dem_path)
 
+    peak_row, peak_col = np.unravel_index(np.nanargmax(grid.elevations), grid.elevations.shape)
+    xs, ys = grid.coordinates()
+    peak_x = float(xs[peak_row, peak_col])
+    peak_y = float(ys[peak_row, peak_col])
     lines = [
         LineString(
             [
-                (grid.transform.c + 200, grid.transform.f - 200),
-                (grid.transform.c + 800, grid.transform.f - 200),
+                (peak_x - 500.0, peak_y),
+                (peak_x + 500.0, peak_y),
             ],
         ),
     ]
@@ -109,13 +122,13 @@ def test_pipeline_with_external_files(tmp_path: Path) -> None:
         observer_lon=-122.99,
         observer_alt=0.0,
         azimuth=0.0,
-        min_visibility_miles=0.5,
-        min_fov_deg=30.0,
+        min_visibility_miles=0.1,
+        min_fov_deg=5.0,
         results_limit=3,
         overrides={
             "terrain.data_path": str(dem_path),
             "roads.data_path": str(road_geojson),
-            "terrain.search_radius_km": 3.0,
+            "terrain.search_radius_km": 2.0,
             "roads.max_walk_minutes": 20.0,
             "visibility.obstruction_start_m": 5.0,
             "visibility.obstruction_height_m": 1.8,

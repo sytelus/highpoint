@@ -1,90 +1,116 @@
 # Configuration Reference
 
-HighPoint reads configuration from OmegaConf-compatible YAML files and a small set of environment variables. This document captures the knobs a maintainer or user can adjust.
+HighPoint merges an optional OmegaConf YAML file with explicit CLI values and validates the result
+with Pydantic. Unknown keys are errors so misspelled settings cannot be silently ignored.
 
 ## Environment Variables
 
-| Variable   | Default                  | Description |
-|------------|--------------------------|-------------|
-| `DATA_ROOT` | `./data` (resolved relative to the current working directory) | Base directory that HighPoint expands to `$DATA_ROOT/highpoint` for terrain and road downloads. The loader creates missing directories automatically and resolves relative entries in YAML configs under this root. Point this to a fast local disk when working with full-resolution DEM tiles. |
-| `OUT_DIR`  | `./out/<project-name>` if unset, create manually per README | Directory where CLI runs should persist reports, CSV/GeoJSON exports, and rendered PNGs. When running inside VS Code, the `ToyRun` debug configuration writes into this directory. |
+| Variable | Default | Behavior |
+|---|---|---|
+| `DATA_ROOT` | `<repository>/data` | HighPoint uses and creates `$DATA_ROOT/highpoint` for large terrain, road, and gazetteer data. A relative input path first resolves to an existing repository path; otherwise it resolves under this project-specific data directory. |
+| `OUT_DIR` | `<repository>/out` | HighPoint uses and creates `$OUT_DIR/highpoint` for relative CSV, GeoJSON, and PNG paths. Explicit absolute output paths are preserved. |
 
-All file-based configuration in `configs/*.yaml` may refer to paths relative to `DATA_ROOT`.
+Neither variable contains a credential, so token rotation does not apply. Keep secrets out of these
+paths and out of YAML files; `.env*` files are ignored by Git.
 
-## YAML Configuration
+## Precedence
 
-Use the samples in `configs/` as starting points:
+Configuration is applied from lowest to highest precedence:
 
-- `configs/toyrun.yaml` – minimal offline configuration for demos and automated checks. Uses the checked-in synthetic fixtures under `data/toy/`.
-- `configs/datasets.yaml` – catalog of terrain and road dataset sources, including mirrors, cache folders, and descriptions.
+1. Pydantic model defaults.
+2. The YAML file supplied with `--config`.
+3. Explicit common CLI values such as `--latitude`, `--min-fov`, and `--results`.
+4. Explicit path/travel CLI overrides such as `--terrain-file`, `--max-walk`, and `--export-csv`.
 
-Configuration sources are merged in the following order:
+Advanced settings that do not have a named CLI option must be placed in YAML. HighPoint does not
+accept arbitrary dotted CLI flags.
 
-1. CLI primitives (`latitude`, `longitude`, `--search-radius`, etc.).
-2. YAML file provided with `--config/-c` (when present).
-3. CLI override flags (`--terrain-file`, `--roads-file`, `--render-png`, etc.) expressed as OmegaConf dotted keys.
+`configs/toyrun.yaml` is an application configuration. `configs/datasets.yaml` is a human-readable
+source catalog and is not merged into application runs.
 
-### Observer (top-level `observer`)
+## Observer
 
-| Key | Type | Default | CLI override | Description |
-|-----|------|---------|--------------|-------------|
-| `latitude` | float | *required* | positional argument | Observer latitude in decimal degrees. Ignored if `observer.location` is set. |
-| `longitude` | float | *required* | positional argument | Observer longitude in decimal degrees. Ignored if `observer.location` is set. |
-| `altitude_m` | float | `0.0` | `--altitude/-a` | Observer altitude above sea level in metres. |
-| `location` | string | `null` | `--location/-L` | Optional `"Town, ST"` string resolved via the offline GNIS gazetteer (`scripts/fetch_gazetteer.py`). Overrides `latitude`/`longitude` and provides an altitude when available. |
+| Key | Type | Default | CLI | Description |
+|---|---:|---:|---|---|
+| `observer.latitude` | float | required | `--latitude` | Latitude in decimal degrees. |
+| `observer.longitude` | float | required | `--longitude` | Longitude in decimal degrees. |
+| `observer.altitude_m` | float | `0.0` | `--altitude`, `-a` | Starting-point altitude. It is currently metadata and does not change candidate visibility. |
+| `observer.location` | string/null | `null` | `--location`, `-L` | Offline GNIS query such as `"Issaquah, WA"`. A resolved location replaces numeric coordinates. |
 
-### Terrain (`terrain`)
+If a requested location cannot be found or the gazetteer is missing, the CLI reports an error. It
+does not silently fall back to unrelated numeric coordinates.
 
-| Key | Type | Default | CLI override | Description |
-|-----|------|---------|--------------|-------------|
-| `source` | string | `"srtm1_arc_second"` | n/a | Named dataset from `configs/datasets.yaml`; used by automation scripts. |
-| `data_path` | path/null | `null` | `--terrain-file` | Optional path to a GeoTIFF; when omitted HighPoint auto-discovers tiles under `$DATA_ROOT/highpoint` or `data/`. |
-| `search_radius_km` | float | `30.0` | `--search-radius` | Radius around the observer to crop DEM/roads. |
-| `resolution_scale` | float | `1.0` | `--terrain.resolution_scale=<value>` | Resamples DEM resolutions (values <1 sharpen, >1 coarsen). |
-| `max_visibility_km` | float | `100.0` | `--terrain.max_visibility_km=<value>` | Maximum ray length used in visibility tracing. |
-| `cluster_grid_m` | float | `250.0` | `--terrain.cluster_grid_m=<value>` | Grid size for clustering nearby candidates. |
+## Terrain
 
-### Roads (`roads`)
+| Key | Type | Default | CLI | Description |
+|---|---:|---:|---|---|
+| `terrain.source` | string | `srtm1_arc_second` | YAML only | Dataset label included in discovery diagnostics. Selection itself is spatial. |
+| `terrain.data_path` | path/null | `null` | `--terrain-file` | DEM GeoTIFF. When omitted, intersecting `.tif`/`.tiff` files are discovered. |
+| `terrain.search_radius_km` | float | `30.0` | `--search-radius` | Radius cropped around the observer; minimum 1 km. |
+| `terrain.resolution_scale` | float | `1.0` | YAML only | Values above 1 reduce raster dimensions; values below 1 upsample. Range: 0.1–4.0. |
+| `terrain.max_visibility_km` | float | `100.0` | YAML only | Maximum length of each visibility ray. |
+| `terrain.cluster_grid_m` | float | `250.0` | YAML only | Square-bin size used to deduplicate nearby candidates. |
 
-| Key | Type | Default | CLI override | Description |
-|-----|------|---------|--------------|-------------|
-| `source` | string | `"osm_geofabrik"` | n/a | Named road dataset entry in `configs/datasets.yaml`. |
-| `data_path` | path/null | `null` | `--roads-file` | Optional cached GeoJSON; auto-discovery falls back to `$DATA_ROOT/highpoint/roads/cache`. |
-| `walking_speed_kmh` | float | `4.8` | `--roads.walking_speed_kmh=<value>` | Assumed walk speed for access time calculations. |
-| `driving_speed_kmh` | float | `60.0` | `--roads.driving_speed_kmh=<value>` | Base driving speed for straight-line estimates. |
-| `max_walk_minutes` | float | `15.0` | `--max-walk` | Maximum acceptable walking time from access point to candidate. |
-| `max_drive_minutes` | float/null | `null` | `--max-drive` | Optional maximum allowable driving time (null disables the limit). |
+All DEMs in a merged request must have compatible CRS/resolution metadata. Valid (non-nodata)
+pixels must cover the search window; padded nodata does not count as coverage.
 
-### Visibility (`visibility`)
+## Roads
 
-| Key | Type | Default | CLI override | Description |
-|-----|------|---------|--------------|-------------|
-| `observer_eye_height_m` | float | `1.8` | `--visibility.observer_eye_height_m=<value>` | Height of the observer above ground. |
-| `obstruction_start_m` | float | `10.0` | `--visibility.obstruction_start_m=<value>` | Radius of the clear “moat” around the viewpoint; synthetic trees begin just outside this distance. |
-| `obstruction_height_m` | float | `15.0` | `--visibility.obstruction_height_m=<value>` | Height of the synthetic tree canopy beyond the moat. Rays must drop by at least `(obstruction_height_m - observer_eye_height_m)` within the moat to clear it (see `docs/OBSTRUCTION_MODEL.md`). |
-| `min_visibility_miles` | float | `3.0` | `--min-visibility/-k` | Required unobstructed viewing distance. |
-| `min_field_of_view_deg` | float | `30.0` | `--min-fov/-g` | Desired continuous field-of-view around the target azimuth. |
-| `azimuth_deg` | float | `0.0` | `--azimuth/-d` | Centreline direction of interest (0 = North). |
-| `azimuth_tolerance_deg` | float | `45.0` | `--visibility.azimuth_tolerance_deg=<value>` | Half-width around `azimuth_deg` to evaluate when using partial sectors. |
-| `rays_full_circle` | int | `72` | `--visibility.rays_full_circle=<value>` | Number of rays sampled over 360°. Higher values improve fidelity at the cost of runtime. |
+| Key | Type | Default | CLI | Description |
+|---|---:|---:|---|---|
+| `roads.source` | string | `osm_geofabrik` | YAML only | Dataset label included in discovery diagnostics. |
+| `roads.data_path` | path/null | `null` | `--roads-file` | Drivable-road GeoJSON. Discovery scans repository toy data and `$DATA_ROOT/highpoint/roads/cache`. |
+| `roads.walking_speed_kmh` | float | `4.8` | YAML only | Speed used to convert straight-line road distance into walk minutes. |
+| `roads.driving_speed_kmh` | float | `60.0` | YAML only | Speed used by the offline drive-time estimate. |
+| `roads.max_walk_minutes` | float | `15.0` | `--max-walk` | Maximum walk from the nearest road geometry. |
+| `roads.max_drive_minutes` | float/null | `null` | `--max-drive` | Optional maximum estimated drive time; `null` disables it. |
 
-### Output (`output`)
+## Visibility
 
-| Key | Type | Default | CLI override | Description |
-|-----|------|---------|--------------|-------------|
-| `results_limit` | int | `10` | `--results/-n` | Number of viewpoints to keep after scoring. |
-| `rich_table` | bool | `true` | `--output.rich_table=<true|false>` | Toggles rich console reporting. |
-| `export_csv` | path/null | `null` | `--export-csv` | Optional CSV export path. |
-| `export_geojson` | path/null | `null` | `--export-geojson` | Optional GeoJSON export path. |
-| `render_png` | path/null | `null` | `--render-png` | Optional terrain overview rendering path. |
+| Key | Type | Default | CLI | Description |
+|---|---:|---:|---|---|
+| `visibility.observer_eye_height_m` | float | `1.8` | YAML only | Eye height above the candidate DEM elevation. |
+| `visibility.obstruction_start_m` | float | `30.0` | YAML only | Clear radius before the synthetic obstruction belt begins. |
+| `visibility.obstruction_height_m` | float | `3.0` | YAML only | Uniform synthetic height added beyond the clear radius. |
+| `visibility.min_visibility_miles` | float | `3.0` | `--min-visibility`, `-k` | Minimum clear distance that a ray must reach. |
+| `visibility.min_field_of_view_deg` | float | `10.0` | `--min-fov`, `-g` | Minimum contiguous qualifying angular width. |
+| `visibility.azimuth_deg` | float | `0.0` | `--azimuth`, `-d` | Desired direction in geographic/grid degrees, where 0 is north. Magnetic declination is not applied. |
+| `visibility.azimuth_tolerance_deg` | float | `45.0` | YAML only | Half-width of the sector evaluated around the desired azimuth. |
+| `visibility.rays_full_circle` | int | `72` | YAML only | Number of evenly spaced 360-degree rays. |
 
-### Location Resolution and Data Discovery
+The FOV must fit inside twice the azimuth tolerance. The angular step
+(`360 / rays_full_circle`) must be no wider than the requested minimum FOV; invalid combinations
+are rejected.
 
-- When `observer.location` is provided (e.g. `observer.location: "Issaquah, WA"`), HighPoint uses the offline GNIS gazetteer to fill in latitude, longitude, and (when available) elevation. Both the CLI (`--location`) and YAML option prefer the gazetteer result over explicit coordinates.
-- If `terrain.data_path` or `roads.data_path` are omitted, HighPoint scans `$DATA_ROOT/highpoint` and the repository `data/` directory for matching files. Missing assets trigger a friendly error with the exact `scripts/fetch_datasets.py` or `build_road_cache` command needed to resolve the gap.
+## Output
 
-### Editing Workflow
+| Key | Type | Default | CLI | Description |
+|---|---:|---:|---|---|
+| `output.results_limit` | int | `10` | `--results`, `-n` | Maximum qualifying results after scoring. |
+| `output.rich_table` | bool | `true` | YAML only | Use Rich terminal panels instead of log lines. |
+| `output.export_csv` | path/null | `null` | `--export-csv` | Ranked CSV path. |
+| `output.export_geojson` | path/null | `null` | `--export-geojson` | Candidate and access-point GeoJSON path. |
+| `output.render_png` | path/null | `null` | `--render-png` | Terrain overview PNG path. |
 
-1. Copy `configs/toyrun.yaml` to a new file alongside your project, adjust the tables above, and run with `--config <path>`.
-2. Override individual values from the command line using dotted keys (example: `--terrain.resolution_scale=0.5`).
-3. Persist environment-specific paths via `DATA_ROOT` and `OUT_DIR` so the CLI stays portable across systems.
+## Example
+
+```yaml
+observer:
+  latitude: 46.9480
+  longitude: -122.9920
+terrain:
+  data_path: data/toy/dem_synthetic.tif
+  search_radius_km: 2.0
+roads:
+  data_path: data/toy/roads_synthetic.geojson
+visibility:
+  min_visibility_miles: 0.5
+  min_field_of_view_deg: 25.0
+  azimuth_deg: 270.0
+  azimuth_tolerance_deg: 60.0
+output:
+  export_csv: seattle-results.csv
+```
+
+Run it with `highpoint --config path/to/config.yaml`. Named CLI options override the corresponding
+values when both are present.

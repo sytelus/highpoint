@@ -126,7 +126,11 @@ def _render_rich_panels(results: Iterable[ViewpointResult], config: AppConfig) -
 
 
 def _render_plain(results: Iterable[ViewpointResult]) -> None:
-    for idx, result in enumerate(results, start=1):
+    results_seq = list(results)
+    if not results_seq:
+        LOG.warning("No viewpoints found.")
+        return
+    for idx, result in enumerate(results_seq, start=1):
         LOG.info(
             (
                 "[%d] location=%s visibility_mean=%.2fmi "
@@ -160,6 +164,7 @@ def _export_csv(results: Iterable[ViewpointResult], path: Path) -> None:
         "access_lon",
         "access_altitude_m",
         "straight_line_miles",
+        "score",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -186,6 +191,7 @@ def _export_csv(results: Iterable[ViewpointResult], path: Path) -> None:
                     "access_lon": result.access_latlon[1] if result.access_latlon else None,
                     "access_altitude_m": result.access_altitude_m,
                     "straight_line_miles": result.straight_line_miles,
+                    "score": result.score,
                 },
             )
     LOG.info("CSV exported to %s", path)
@@ -217,6 +223,9 @@ def _export_geojson(results: Iterable[ViewpointResult], path: Path) -> None:
                     ),
                     "access_lat": result.access_latlon[0] if result.access_latlon else None,
                     "access_lon": result.access_latlon[1] if result.access_latlon else None,
+                    "access_altitude_m": result.access_altitude_m,
+                    "straight_line_miles": result.straight_line_miles,
+                    "score": result.score,
                 },
             },
         )

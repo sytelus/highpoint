@@ -30,6 +30,7 @@ htmlcov/
 sphinx/_build/
 site/
 ipynb_checkpoints/
+/out/
 
 # Rust
 /target/
